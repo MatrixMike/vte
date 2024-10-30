@@ -1,19 +1,18 @@
 /*
  * Copyright 2009 Red Hat, Inc.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 /* The interfaces in this file are subject to change at any time. */
@@ -32,6 +31,7 @@ typedef GByteArray VteByteArray;
 #define _vte_byte_array_free(B)			g_byte_array_free (B, TRUE)
 #define _vte_byte_array_append(B, data, length)	g_byte_array_append (B, (const guint8 *) (data), length)
 #define _vte_byte_array_length(B)			((B)->len)
+#define _vte_byte_array_data(B)                         ((B)->data)
 #define _vte_byte_array_consume(B, length)		g_byte_array_remove_range (B, 0, length)
 #define _vte_byte_array_clear(B)			g_byte_array_set_size (B, 0)
 #define _vte_byte_array_set_minimum_size(B, length)	g_byte_array_set_size (B, (guint) MAX ((gint) (length), (gint) (B)->len))

@@ -1,31 +1,29 @@
 /*
  * Copyright (C) 2002 Red Hat, Inc.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <config.h>
-#ifdef HAVE_SYS_TYPES_H
+#include "config.h"
+
+#if __has_include(<sys/types.h>)
 #include <sys/types.h>
 #endif
-#ifdef HAVE_SYS_SELECT_H
+#if __has_include(<sys/select.h>)
 #include <sys/select.h>
 #endif
-#ifdef HAVE_SYS_TERMIOS_H
-#include <sys/termios.h>
-#endif
+#include <termios.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -33,9 +31,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HAVE_TERMIOS_H
-#include <termios.h>
-#endif
 #include <unistd.h>
 #include <glib.h>
 
@@ -167,17 +162,7 @@ main(int argc, char **argv)
 	}
 	original = tcattr;
 	signal(SIGINT, sigint_handler);
-	/* Here we approximate what cfmakeraw() would do, for the benefit
-	 * of systems which don't actually provide the function. */
-	tcattr.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP |
-			    INLCR | IGNCR | ICRNL | IXON);
-	tcattr.c_oflag &= ~(OPOST);
-	tcattr.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-	tcattr.c_cflag &= ~(CSIZE | PARENB);
-	tcattr.c_cflag |= CS8;
-#ifdef HAVE_CFMAKERAW
 	cfmakeraw(&tcattr);
-#endif
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &tcattr) != 0) {
 		perror("tcsetattr");
 		return 1;

@@ -1,25 +1,26 @@
 /*
  * Copyright (C) 2008 Red Hat, Inc.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  *
  * Author(s):
  * 	Behdad Esfahbod
  */
 
 #include <config.h>
+
+#include "debug.h"
 
 #include "vteunistr.h"
 
@@ -75,8 +76,6 @@
  * decomposition to the lookup array and the hash table, and return the newly
  * encoded vteunistr value.
  */
-
-#define VTE_UNISTR_START 0x80000000
 
 static vteunistr unistr_next = VTE_UNISTR_START + 1;
 
@@ -140,6 +139,19 @@ _vte_unistr_append_unichar (vteunistr s, gunichar c)
 	return ret;
 }
 
+vteunistr
+_vte_unistr_append_unistr (vteunistr s, vteunistr t)
+{
+        g_return_val_if_fail (s < unistr_next, s);
+        g_return_val_if_fail (t < unistr_next, s);
+        if (G_UNLIKELY (t >= VTE_UNISTR_START)) {
+                s = _vte_unistr_append_unistr (s, DECOMP_FROM_UNISTR (t).prefix);
+                return _vte_unistr_append_unichar (s, DECOMP_FROM_UNISTR (t).suffix);
+        } else {
+                return _vte_unistr_append_unichar (s, t);
+        }
+}
+
 gunichar
 _vte_unistr_get_base (vteunistr s)
 {
@@ -150,10 +162,45 @@ _vte_unistr_get_base (vteunistr s)
 }
 
 void
-_vte_unistr_append_to_string (vteunistr s, GString *gs)
+_vte_unistr_append_to_gunichars (vteunistr s, VteBidiChars *a)
+{
+        if (G_UNLIKELY (s >= VTE_UNISTR_START)) {
+                struct VteUnistrDecomp *decomp;
+                decomp = &DECOMP_FROM_UNISTR (s);
+                _vte_unistr_append_to_gunichars (decomp->prefix, a);
+                s = decomp->suffix;
+        }
+        gunichar val = (gunichar) s;
+        vte_bidi_chars_append(a, &val);
+}
+
+vteunistr
+_vte_unistr_replace_base (vteunistr s, gunichar c)
+{
+        g_return_val_if_fail (s < unistr_next, s);
+
+        if (G_LIKELY (_vte_unistr_get_base(s) == c))
+                return s;
+
+        VteBidiChars a;
+        vte_bidi_chars_init(&a);
+        _vte_unistr_append_to_gunichars (s, &a);
+        vte_assert_cmpint(vte_bidi_chars_get_size(&a), >=, 1);
+
+        s = c;
+        for (gsize i = 1; i < vte_bidi_chars_get_size(&a); i++)
+                s = _vte_unistr_append_unichar (s, *vte_bidi_chars_get (&a, i));
+
+        vte_bidi_chars_clear (&a);
+
+        return s;
+}
+
+void
+(_vte_unistr_append_to_string) (vteunistr s, GString *gs)
 {
 	g_return_if_fail (s < unistr_next);
-	if (G_UNLIKELY (s >= VTE_UNISTR_START)) {
+	if (s >= VTE_UNISTR_START) {
 		struct VteUnistrDecomp *decomp;
 		decomp = &DECOMP_FROM_UNISTR (s);
 		_vte_unistr_append_to_string (decomp->prefix, gs);
@@ -163,11 +210,11 @@ _vte_unistr_append_to_string (vteunistr s, GString *gs)
 }
 
 int
-_vte_unistr_strlen (vteunistr s)
+(_vte_unistr_strlen) (vteunistr s)
 {
 	int len = 1;
 	g_return_val_if_fail (s < unistr_next, len);
-	while (G_UNLIKELY (s >= VTE_UNISTR_START)) {
+	while (s >= VTE_UNISTR_START) {
 		s = DECOMP_FROM_UNISTR (s).prefix;
 		len++;
 	}

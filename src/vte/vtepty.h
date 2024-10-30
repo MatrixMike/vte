@@ -1,23 +1,21 @@
 /*
  * Copyright © 2009, 2010 Christian Persch
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __VTE_VTE_PTY_H__
-#define __VTE_VTE_PTY_H__
+#pragma once
 
 #if !defined (__VTE_VTE_H_INSIDE__) && !defined (VTE_COMPILATION)
 #error "Only <vte/vte.h> can be included directly."
@@ -30,10 +28,12 @@
 
 G_BEGIN_DECLS
 
-#define VTE_SPAWN_NO_PARENT_ENVV (1 << 25)
+#define VTE_SPAWN_NO_PARENT_ENVV        (1 << 25)
+#define VTE_SPAWN_NO_SYSTEMD_SCOPE      (1 << 26)
+#define VTE_SPAWN_REQUIRE_SYSTEMD_SCOPE (1 << 27)
 
 _VTE_PUBLIC
-GQuark vte_pty_error_quark (void);
+GQuark vte_pty_error_quark (void) _VTE_CXX_NOEXCEPT;
 
 /**
  * VTE_PTY_ERROR:
@@ -61,39 +61,35 @@ GType vte_pty_get_type (void);
 _VTE_PUBLIC
 VtePty *vte_pty_new_sync (VtePtyFlags flags,
                           GCancellable *cancellable,
-                          GError **error);
+                          GError **error) _VTE_CXX_NOEXCEPT;
 
 _VTE_PUBLIC
 VtePty *vte_pty_new_foreign_sync (int fd,
                                   GCancellable *cancellable,
-                                  GError **error);
+                                  GError **error) _VTE_CXX_NOEXCEPT;
 
 _VTE_PUBLIC
-int vte_pty_get_fd (VtePty *pty) _VTE_GNUC_NONNULL(1);
+int vte_pty_get_fd (VtePty *pty) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
-void vte_pty_child_setup (VtePty *pty) _VTE_GNUC_NONNULL(1);
+void vte_pty_child_setup (VtePty *pty) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
 gboolean vte_pty_get_size (VtePty *pty,
                            int *rows,
                            int *columns,
-                           GError **error) _VTE_GNUC_NONNULL(1);
+                           GError **error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
 gboolean vte_pty_set_size (VtePty *pty,
                            int rows,
                            int columns,
-                           GError **error) _VTE_GNUC_NONNULL(1);
+                           GError **error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
 gboolean vte_pty_set_utf8 (VtePty *pty,
                            gboolean utf8,
-                           GError **error) _VTE_GNUC_NONNULL(1);
-
-#if GLIB_CHECK_VERSION(2, 44, 0)
-G_DEFINE_AUTOPTR_CLEANUP_FUNC(VtePty, g_object_unref)
-#endif
+                           GError **error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
 void vte_pty_spawn_async(VtePty *pty,
@@ -107,14 +103,32 @@ void vte_pty_spawn_async(VtePty *pty,
                          int timeout,
                          GCancellable *cancellable,
                          GAsyncReadyCallback callback,
-                         gpointer user_data) _VTE_GNUC_NONNULL(1) _VTE_GNUC_NONNULL(3);
+                         gpointer user_data) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1, 3);
+
+_VTE_PUBLIC
+void vte_pty_spawn_with_fds_async(VtePty *pty,
+                                  char const* working_directory,
+                                  char const* const* argv,
+                                  char const* const* envv,
+                                  int const* fds,
+                                  int n_fds,
+                                  int const* map_fds,
+                                  int n_map_fds,
+                                  GSpawnFlags spawn_flags,
+                                  GSpawnChildSetupFunc child_setup,
+                                  gpointer child_setup_data,
+                                  GDestroyNotify child_setup_data_destroy,
+                                  int timeout,
+                                  GCancellable *cancellable,
+                                  GAsyncReadyCallback callback,
+                                  gpointer user_data) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1, 3);
 
 _VTE_PUBLIC
 gboolean vte_pty_spawn_finish(VtePty *pty,
                               GAsyncResult *result,
                               GPid *child_pid /* out */,
-                              GError **error) _VTE_GNUC_NONNULL(1) _VTE_GNUC_NONNULL(2);
+                              GError **error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1, 2);
+
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(VtePty, g_object_unref)
 
 G_END_DECLS
-
-#endif /* __VTE_VTE_PTY_H__ */

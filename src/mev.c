@@ -1,39 +1,33 @@
 /*
  * Copyright (C) 2003 Red Hat, Inc.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include <config.h>
 #include <sys/types.h>
-#ifdef HAVE_SYS_TERMIOS_H
-#include <sys/termios.h>
-#endif
 #include <sys/time.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <string.h>
-#ifdef HAVE_TERMIOS_H
 #include <termios.h>
-#endif
 #include <unistd.h>
 #include <glib.h>
-#include "caps.h"
+#include "caps.hh"
 
-#ifdef HAVE_SYS_SELECT_H
+#if __has_include(<sys/select.h>)
 #include <sys/select.h>
 #endif
 
@@ -45,7 +39,6 @@ enum {
 	tracking_all_motion = 1003,
         tracking_focus = 1004,
         tracking_xterm_ext = 1006,
-        tracking_urxvt = 1015
 };
 
 static int tracking_mode = 0;
@@ -66,7 +59,6 @@ reset_mouse_tracking_mode(void)
 	decset(tracking_cell_motion, FALSE);
 	decset(tracking_all_motion, FALSE);
 	decset(tracking_xterm_ext, FALSE);
-	decset(tracking_urxvt, FALSE);
 	fflush(stdout);
 }
 
@@ -113,10 +105,6 @@ clear(void)
 		fprintf(stdout, "Xterm 1006 mouse tracking extension enabled.\r\n");
 		decset(tracking_xterm_ext, TRUE);
 		break;
-	case tracking_urxvt:
-		fprintf(stdout, "rxvt-unicode 1015 mouse tracking extension enabled.\r\n");
-		decset(tracking_urxvt, TRUE);
-		break;
 	default:
 		fprintf(stdout, "Tracking disabled.\r\n");
 		break;
@@ -128,7 +116,6 @@ clear(void)
 	fprintf(stdout, "D - Cell motion tracking.\r\n");
 	fprintf(stdout, "E - All motion tracking.\r\n");
 	fprintf(stdout, "F - Xterm 1006 extension.\r\n");
-	fprintf(stdout, "G - rxvt-unicode extension.\r\n");
 	fprintf(stdout, "I - Focus tracking.\r\n");
 	fprintf(stdout, "Q - Quit.\r\n");
 	fprintf(stdout, "%s", _VTE_CAP_ESC "8");
@@ -140,7 +127,7 @@ parse_legacy_mouse_mode(guint8 *data,
                         gsize len)
 {
         int button = 0;
-        const char *shift = "", *control = "", *meta = "";
+        const char *shift = "", *control = "", *alt = "";
         gboolean motion = FALSE;
         int x, y;
         guint8 b;
@@ -175,8 +162,8 @@ parse_legacy_mouse_mode(guint8 *data,
         shift = b & 4 ?
                 "[shift]" :
                 "";
-        meta = b & 8 ?
-                "[meta]" :
+        alt = b & 8 ?
+                "[alt]" :
                 "";
         control = b & 16 ?
                 "[control]" :
@@ -189,7 +176,7 @@ parse_legacy_mouse_mode(guint8 *data,
                 motion ? "motion " : "",
                 (!motion && button) ? "press" : "",
                 (!motion && !button) ? "release" : "",
-                meta, control, shift,
+                alt, control, shift,
                 x, y);
 
         return 6;
@@ -208,7 +195,7 @@ parse_esc(guint8 *data,
         if (data[2] == 'M')
                 return parse_legacy_mouse_mode(data, len);
 
-        /* FIXME: add support for xterm extended mode (1006) and urxvt mode (1015) */
+        /* FIXME: add support for xterm extended mode (1006) */
 
         if (data[2] == 'I' || data[2] == 'O') {
                 fprintf(stdout, "focus %s\r\n", data[2] == 'I' ? "in" : "out");
@@ -313,12 +300,6 @@ parse(void)
 					0 : tracking_xterm_ext;
 			i++;
 			break;
-		case 'G':
-		case 'g':
-			tracking_mode = (tracking_mode == tracking_urxvt) ?
-					0 : tracking_urxvt;
-			i++;
-			break;
 		case 'I':
 		case 'i':
 			tracking_focus_mode = !tracking_focus_mode;
@@ -336,8 +317,8 @@ parse(void)
                                 i += consumed;
                                 break;
                         }
-                        /* else fall-trough */
                 }
+                        /* fallthrough */
 		default:
                         i += print_data(&bytes->data[i], bytes->len - i);
 			fprintf(stdout, "\r\n");
@@ -352,6 +333,7 @@ parse(void)
 
 static struct termios tcattr, original;
 
+G_GNUC_NORETURN
 static void
 sigint_handler(int signum)
 {
@@ -376,17 +358,7 @@ main(int argc, char **argv)
 
 	original = tcattr;
 	signal(SIGINT, sigint_handler);
-	/* Here we approximate what cfmakeraw() would do, for the benefit
-	 * of systems which don't actually provide the function. */
-	tcattr.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP |
-			    INLCR | IGNCR | ICRNL | IXON);
-	tcattr.c_oflag &= ~(OPOST);
-	tcattr.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-	tcattr.c_cflag &= ~(CSIZE | PARENB);
-	tcattr.c_cflag |= CS8;
-#ifdef HAVE_CFMAKERAW
 	cfmakeraw(&tcattr);
-#endif
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &tcattr) != 0) {
 		perror("tcsetattr");
 		return 1;

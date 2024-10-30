@@ -1,19 +1,18 @@
 /*
  * Copyright (C) 2003 Red Hat, Inc.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include <config.h>
@@ -79,7 +78,10 @@ main(int argc, char **argv)
 		if (fd != -1) {
 			if (fstat(fd, &st) != -1) {
 				buffer = g_malloc(st.st_size);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
 				read(fd, buffer, st.st_size);
+#pragma GCC diagnostic pop
 				for (j = 0; j < st.st_size; j++) {
 					switch (buffer[j]) {
 					case '\r':
@@ -113,9 +115,12 @@ main(int argc, char **argv)
 					       buffer + j,
 					       length);
 					outbuf[length + 4] = '\007';
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
 					write(STDERR_FILENO,
 					      outbuf,
 					      length + 5);
+#pragma GCC diagnostic pop
 					my_usleep(delay);
 					if ((j == 0) ||
 					    (j == st.st_size - length - 1)) {
@@ -132,7 +137,10 @@ main(int argc, char **argv)
 						 "\007",
 						 argv[i],
 						 strerror(errno));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
 			write(STDERR_FILENO, errbuf, strlen(errbuf));
+#pragma GCC diagnostic pop
 			g_free(errbuf);
 			my_usleep(1000000);
 		}

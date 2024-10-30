@@ -1,19 +1,18 @@
 /*
  * Copyright (C) 2002,2009 Red Hat, Inc.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  *
  * Red Hat Author(s): Nalin Dahyabhai, Behdad Esfahbod
  */
@@ -21,10 +20,22 @@
 #include <config.h>
 
 #include "debug.h"
-#include "vterowdata.h"
+#include "vterowdata.hh"
 
 #include <string.h>
 
+#include <algorithm>
+#include <iterator>
+#include <type_traits>
+
+/* This will be true now that VteCell is POD, but make sure it'll be true
+ * once that changes.
+ */
+static_assert(std::is_trivially_copy_constructible<VteCell>::value, "VteCell is not copy constructible");
+static_assert(std::is_trivially_move_constructible<VteCell>::value, "VteCell is not move constructible");
+static_assert(std::is_trivially_copyable<VteCell>::value, "VteCell is not trivially copyable");
+static_assert(std::is_trivially_copy_assignable<VteCell>::value, "VteCell is not copy assignable");
+static_assert(std::is_trivially_move_assignable<VteCell>::value, "VteCell is not move assignable");
 
 /*
  * VteCells: A row's cell array
@@ -42,7 +53,7 @@ _vte_cells_for_cell_array (VteCell *cells)
 	if (G_UNLIKELY (!cells))
 		return NULL;
 
-	return (VteCells *) (((guchar *) cells) - G_STRUCT_OFFSET (VteCells, cells));
+	return reinterpret_cast<VteCells*>(((guchar *) cells) - G_STRUCT_OFFSET (VteCells, cells));
 }
 
 static VteCells *
@@ -91,7 +102,7 @@ _vte_row_data_fini (VteRowData *row)
 	row->cells = NULL;
 }
 
-static inline gboolean
+static inline bool
 _vte_row_data_ensure (VteRowData *row, gulong len)
 {
 	VteCells *cells = _vte_cells_for_cell_array (row->cells);
@@ -104,6 +115,12 @@ _vte_row_data_ensure (VteRowData *row, gulong len)
 	row->cells = _vte_cells_realloc (cells, len)->cells;
 
 	return TRUE;
+}
+
+bool
+_vte_row_data_ensure_len (VteRowData *row, gulong len)
+{
+        return _vte_row_data_ensure(row, len);
 }
 
 void
@@ -144,13 +161,21 @@ void _vte_row_data_remove (VteRowData *row, gulong col)
 void _vte_row_data_fill (VteRowData *row, const VteCell *cell, gulong len)
 {
 	if (row->len < len) {
-		gulong i;
-
 		if (G_UNLIKELY (!_vte_row_data_ensure (row, len)))
 			return;
 
-		for (i = row->len; i < len; i++)
-			row->cells[i] = *cell;
+		std::fill_n(&row->cells[row->len], len - row->len, *cell);
+		row->len = len;
+	}
+}
+
+/* This leaves the new cells uninitialized, potentially containing random data.
+ * It's the caller's responsibility to initialize them. */
+void _vte_row_data_expand (VteRowData *row, gulong len)
+{
+	if (row->len < len) {
+		if (G_UNLIKELY (!_vte_row_data_ensure (row, len)))
+			return;
 
 		row->len = len;
 	}
@@ -160,5 +185,45 @@ void _vte_row_data_shrink (VteRowData *row, gulong max_len)
 {
 	if (max_len < row->len)
 		row->len = max_len;
+}
+
+void _vte_row_data_copy (const VteRowData *src, VteRowData *dst)
+{
+        _vte_row_data_ensure (dst, src->len);
+        dst->len = src->len;
+        dst->attr = src->attr;
+        memcpy(dst->cells, src->cells, src->len * sizeof (src->cells[0]));
+}
+
+void _vte_row_data_fill_cells(VteRowData* row,
+                              gulong start_idx,
+                              VteCell const* fill_cell,
+                              VteCell const* cells,
+                              gulong len)
+{
+        auto const needlen = start_idx + len;
+        if (!_vte_row_data_ensure(row, needlen))
+                return;
+
+        // Fill up to start_idx with @fill_cell
+        _vte_row_data_fill(row, fill_cell, start_idx);
+        // ... then copy the cells over ...
+        std::copy_n(cells, len, &row->cells[start_idx]);
+        // ... and adjust the row length
+        if (row->len < needlen)
+                row->len = needlen;
+}
+
+/* Get the length, ignoring trailing empty cells (with a custom background color). */
+guint16 _vte_row_data_nonempty_length (const VteRowData *row)
+{
+        guint16 len;
+        const VteCell *cell;
+        for (len = row->len; len > 0; len--) {
+                cell = &row->cells[len - 1];
+                if (cell->attr.fragment() || cell->c != 0)
+                        break;
+        }
+        return len;
 }
 

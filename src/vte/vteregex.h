@@ -1,22 +1,21 @@
 /*
  * Copyright © 2015 Christian Persch
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __VTE_VTE_REGEX_H__
-#define __VTE_VTE_REGEX_H__
+#pragma once
 
 #if !defined (__VTE_VTE_H_INSIDE__) && !defined (VTE_COMPILATION)
 #error "Only <vte/vte.h> can be included directly."
@@ -24,6 +23,7 @@
 
 #include <glib.h>
 #include <glib-object.h>
+#include <stdint.h>
 
 #include "vtemacros.h"
 
@@ -45,32 +45,51 @@ GQuark vte_regex_error_quark (void);
 #define VTE_REGEX_FLAGS_DEFAULT (0x00080000u | 0x40000000u | 0x00100000u)
 
 _VTE_PUBLIC
-VteRegex *vte_regex_ref      (VteRegex *regex) _VTE_GNUC_NONNULL(1);
+VteRegex *vte_regex_ref      (VteRegex *regex) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
-VteRegex *vte_regex_unref    (VteRegex *regex) _VTE_GNUC_NONNULL(1);
+VteRegex *vte_regex_unref    (VteRegex *regex) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
 VteRegex *vte_regex_new_for_match (const char *pattern,
                                    gssize      pattern_length,
                                    guint32     flags,
-                                   GError    **error) _VTE_GNUC_NONNULL(1);
+                                   GError    **error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
+
+_VTE_PUBLIC
+VteRegex *vte_regex_new_for_match_full (char const* pattern,
+                                        gssize pattern_length,
+                                        uint32_t flags,
+                                        uint32_t extra_flags,
+                                        gsize* error_offset,
+                                        GError** error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
 VteRegex *vte_regex_new_for_search (const char *pattern,
                                     gssize      pattern_length,
                                     guint32     flags,
-                                    GError    **error) _VTE_GNUC_NONNULL(1);
+                                    GError    **error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
+
+_VTE_PUBLIC
+VteRegex *vte_regex_new_for_search_full (char const* pattern,
+                                         gssize pattern_length,
+                                         uint32_t flags,
+                                         uint32_t extra_flags,
+                                         gsize* error_offset,
+                                         GError** error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
 gboolean  vte_regex_jit     (VteRegex *regex,
                              guint32   flags,
-                             GError  **error) _VTE_GNUC_NONNULL(1);
+                             GError  **error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
-#if GLIB_CHECK_VERSION(2, 44, 0)
+_VTE_PUBLIC
+char *vte_regex_substitute(VteRegex *regex,
+                           const char *subject,
+                           const char *replacement,
+                           guint32 flags,
+                           GError **error) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1, 2, 3) G_GNUC_MALLOC;
+
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(VteRegex, vte_regex_unref)
-#endif
 
 G_END_DECLS
-
-#endif /* __VTE_VTE_REGEX_H__ */

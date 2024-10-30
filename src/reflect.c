@@ -1,19 +1,18 @@
 /*
  * Copyright (C) 2003 Red Hat, Inc.
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include <config.h>
@@ -48,7 +47,7 @@ terminal_shell_text_view(GtkWidget *widget)
 static GtkAdjustment *
 terminal_adjustment_text_view(GtkWidget *terminal)
 {
-	return gtk_text_view_get_vadjustment(GTK_TEXT_VIEW(terminal));
+        return gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(terminal));
 }
 #endif
 #ifdef USE_VTE
@@ -89,10 +88,10 @@ terminal_shell_vte(GtkWidget *terminal)
 static void
 update_contents(AtkObject *obj, GtkWidget *widget)
 {
-	int caret, i;
+	guint caret, i;
 	GString *s;
 
-	caret = atk_text_get_caret_offset(ATK_TEXT(obj));
+	caret = (guint)atk_text_get_caret_offset(ATK_TEXT(obj));
 	s = g_string_new(NULL);
 	for (i = 0; i < contents->len; i++) {
 		if (i == caret) {
@@ -142,7 +141,7 @@ text_changed_insert(AtkObject *obj, gint offset, gint length, gpointer data)
 	i = 0;
 	while (i < length) {
 		c = g_utf8_get_char(p);
-		if (offset + i >= contents->len) {
+		if ((guint)(offset + i) >= contents->len) {
 			g_array_append_val(contents, c);
 		} else {
 			g_array_insert_val(contents, offset + i, c);
@@ -151,7 +150,7 @@ text_changed_insert(AtkObject *obj, gint offset, gint length, gpointer data)
 		p = g_utf8_next_char(p);
 	}
 
-#ifdef VTE_DEBUG
+#if VTE_DEBUG
 	if ((getenv("REFLECT_VERBOSE") != NULL) &&
 	    (atol(getenv("REFLECT_VERBOSE")) != 0)) {
 		g_printerr("Inserted %d chars ('%.*s') at %d,",
@@ -172,12 +171,12 @@ text_changed_delete(AtkObject *obj, gint offset, gint length, gpointer data)
 {
 	int i;
 	for (i = offset + length - 1; i >= offset; i--) {
-		if (i > contents->len - 1) {
+		if ((guint)i > contents->len - 1) {
 			g_warning("Invalid character %d was deleted.\n", i);
 		}
 		g_array_remove_index(contents, i);
 	}
-#ifdef VTE_DEBUG
+#if VTE_DEBUG
 	if ((getenv("REFLECT_VERBOSE") != NULL) &&
 	    (atol(getenv("REFLECT_VERBOSE")) != 0)) {
 		g_printerr("Deleted %d chars at %d.\n", length, offset);
@@ -241,11 +240,11 @@ terminal_adjustment(GtkWidget *terminal)
 int
 main(int argc, char **argv)
 {
-	GtkWidget *label, *terminal, *tophalf, *pane, *window, *scrollbar, *sw;
+	GtkWidget *label, *terminal, *tophalf, *pane, *window, *sw;
 	AtkObject *obj;
 	char *text, *p;
 	gunichar c;
-	gint count;
+	guint count;
 
 	gtk_init(&argc, &argv);
 
@@ -258,26 +257,27 @@ main(int argc, char **argv)
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(tophalf),
 				       GTK_POLICY_AUTOMATIC,
 				       GTK_POLICY_AUTOMATIC);
-	scrollbar = NULL;
 	gtk_container_add(GTK_CONTAINER(tophalf), terminal);
 #else
-	tophalf = gtk_hbox_new(FALSE, 0);
+        tophalf = gtk_grid_new();
 
-	gtk_box_pack_start(GTK_BOX(tophalf), terminal, TRUE, TRUE, 0);
+        gtk_grid_attach(GTK_GRID(tophalf), terminal, 0, 0, 1, 1);
 	gtk_widget_show(terminal);
 
-	scrollbar = gtk_vscrollbar_new(terminal_adjustment(terminal));
-	gtk_box_pack_start(GTK_BOX(tophalf), scrollbar, FALSE, TRUE, 0);
+        GtkWidget* scrollbar = gtk_scrollbar_new(GTK_ORIENTATION_VERTICAL,
+                                                 terminal_adjustment(terminal));
+        gtk_grid_attach(GTK_GRID(tophalf), scrollbar, 1, 0, 1, 1);
 	gtk_widget_show(scrollbar);
 #endif
 	gtk_widget_show(terminal);
 
 	label = gtk_label_new("");
 	gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
-	gtk_misc_set_alignment(GTK_MISC(label), 0, 0);
+        gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+        gtk_label_set_yalign(GTK_LABEL(label), 0.0);
 
 	sw = gtk_scrolled_window_new(NULL, NULL);
-	gtk_scrolled_window_add_with_viewport(GTK_SCROLLED_WINDOW(sw), label);
+        gtk_container_add(GTK_CONTAINER(sw), label);
 	gtk_widget_show(label);
 
 	pane = gtk_paned_new (GTK_ORIENTATION_VERTICAL);
@@ -303,7 +303,7 @@ main(int argc, char **argv)
 	g_signal_connect(G_OBJECT(obj), "text-selection-changed",
 			 G_CALLBACK(text_selection_changed), label);
 
-	count = atk_text_get_character_count(ATK_TEXT(obj));
+	count = (guint)atk_text_get_character_count(ATK_TEXT(obj));
 	if (count > 0) {
 		text = atk_text_get_text(ATK_TEXT(obj), 0, count);
 		if (text != NULL) {

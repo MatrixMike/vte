@@ -1,49 +1,68 @@
 # French translation of vte.
-# Copyright (C) 2002-2016 Free Software Foundation, Inc.
+# Copyright (C) 2002-2020 Free Software Foundation, Inc.
 # This file is under the same license as the vte package.
 #
 # Laurent Richard <kouran@iespana.es>, 2002.
 # Christophe Merlet <redfox@redfoxcenter.org>, 2002-2006.
 # Jonathan Ernst <jonathan@ernstfamily.ch>, 2007.
 # Stéphane Raimbault <stephane.raimbault@gmail.com>, 2007.
+# Charles Monzat <superboa@hotmail.fr>, 2018.
+# Thibault Martin <mail@thibaultmart.in>, 2020.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: vte 0.14.1\n"
-"Report-Msgid-Bugs-To: http://bugzilla.gnome.org/enter_bug.cgi?"
-"product=vte&keywords=I18N+L10N&component=general\n"
-"POT-Creation-Date: 2016-08-15 12:39+0000\n"
-"PO-Revision-Date: 2016-08-30 08:55+0200\n"
-"Last-Translator: Claude Paroz <claude@2xlibre.net>\n"
+"Report-Msgid-Bugs-To: https://gitlab.gnome.org/GNOME/vte/issues\n"
+"POT-Creation-Date: 2020-08-10 11:59+0000\n"
+"PO-Revision-Date: 2020-09-05 20:35+0200\n"
+"Last-Translator: Thibault Martin <mail@thibaultmart.in>\n"
 "Language-Team: GNOME French Team <gnomefr@traduc.org>\n"
 "Language: fr\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+"X-Generator: Gtranslator 3.36.0\n"
 
-#: ../src/iso2022.cc:73 ../src/iso2022.cc:81 ../src/iso2022.cc:111
-#: ../src/vtegtk.cc:3069
-#, c-format
-msgid "Unable to convert characters from %s to %s."
-msgstr "Impossible de convertir les caractères %s en %s."
-
-#. Translators: %s is replaced with error message returned by strerror().
-#: ../src/vte.cc:4003
-#, c-format
-msgid "Error reading from child: %s."
-msgstr "Erreur lors de la lecture du fils : « %s »."
-
-#: ../src/vte.cc:4142
-#, c-format
-msgid "Error (%s) converting data for child, dropping."
-msgstr "Erreur (%s) lors de la conversion de données pour le fils, abandon."
-
-#: ../src/vte.cc:7911
+#: src/vte.cc:7770
 msgid "WARNING"
 msgstr "AVERTISSEMENT"
 
-#: ../src/vte.cc:7912
-msgid "GNUTLS not enabled; data will be written to disk unencrypted!"
+#: src/vte.cc:7772
+msgid "GnuTLS not enabled; data will be written to disk unencrypted!"
 msgstr ""
-"GNUTLS n'est pas activé ; les données seront écrites sur le disque sans "
-"être chiffrées !"
+"GnuTLS n’est pas activé ; les données seront écrites sur le disque sans être "
+"chiffrées !"
+
+#: src/spawn.cc:111
+#, c-format
+msgid "Failed to set pipe nonblocking: %s"
+msgstr "Impossible d’établir le tube non-bloquant : %s"
+
+#: src/spawn.cc:156
+#, c-format
+msgid "poll error: %s"
+msgstr "erreur d’inspection : %s"
+
+#: src/spawn.cc:163
+msgid "Operation timed out"
+msgstr "Expiration du délai de l’opération"
+
+#: src/spawn.cc:173
+msgid "Operation was cancelled"
+msgstr "L’opération a été annulée"
+
+#: src/spawn.cc:191
+#, c-format
+msgid "Failed to read from child pipe (%s)"
+msgstr "Erreur lors de la lecture du tube fils (%s)"
+
+#: src/spawn.cc:621
+#, c-format
+msgid "Failed to change to directory “%s”: %s"
+msgstr "Impossible de passer dans le répertoire « %s » : %s"
+
+#: src/spawn.cc:690
+#, c-format
+msgid "Failed to execute child process “%s”: "
+msgstr "Impossible d’exécuter le processus fils « %s » : "

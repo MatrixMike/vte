@@ -2,18 +2,18 @@
  * Copyright (C) 2001-2004,2009,2010 Red Hat, Inc.
  * Copyright © 2008, 2009, 2010, 2015 Christian Persch
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 /**
@@ -52,10 +52,9 @@ enum {
         SIGNAL_RESIZE_WINDOW,
         SIGNAL_RESTORE_WINDOW,
         SIGNAL_SELECTION_CHANGED,
-        SIGNAL_TEXT_DELETED,
-        SIGNAL_TEXT_INSERTED,
-        SIGNAL_TEXT_MODIFIED,
-        SIGNAL_TEXT_SCROLLED,
+        SIGNAL_SETUP_CONTEXT_MENU,
+        SIGNAL_TERMPROPS_CHANGED,
+        SIGNAL_TERMPROP_CHANGED,
         SIGNAL_WINDOW_TITLE_CHANGED,
         LAST_SIGNAL
 };
@@ -67,14 +66,26 @@ enum {
         PROP_ALLOW_HYPERLINK,
         PROP_AUDIBLE_BELL,
         PROP_BACKSPACE_BINDING,
+        PROP_BOLD_IS_BRIGHT,
+        PROP_CELL_HEIGHT_SCALE,
+        PROP_CELL_WIDTH_SCALE,
         PROP_CJK_AMBIGUOUS_WIDTH,
+        PROP_CONTEXT_MENU_MODEL,
+        PROP_CONTEXT_MENU,
         PROP_CURSOR_BLINK_MODE,
         PROP_CURSOR_SHAPE,
         PROP_CURRENT_DIRECTORY_URI,
         PROP_CURRENT_FILE_URI,
         PROP_DELETE_BINDING,
+        PROP_ENABLE_A11Y,
+        PROP_ENABLE_BIDI,
+        PROP_ENABLE_FALLBACK_SCROLLING,
+        PROP_ENABLE_LEGACY_OSC777,
+        PROP_ENABLE_SHAPING,
+        PROP_ENABLE_SIXEL,
         PROP_ENCODING,
         PROP_FONT_DESC,
+        PROP_FONT_OPTIONS,
         PROP_FONT_SCALE,
         PROP_HYPERLINK_HOVER_URI,
         PROP_ICON_TITLE,
@@ -83,10 +94,17 @@ enum {
         PROP_PTY,
         PROP_REWRAP_ON_RESIZE,
         PROP_SCROLLBACK_LINES,
+        PROP_SCROLL_ON_INSERT,
         PROP_SCROLL_ON_KEYSTROKE,
         PROP_SCROLL_ON_OUTPUT,
+        PROP_SCROLL_UNIT_IS_PIXELS,
+        PROP_TEXT_BLINK_MODE,
         PROP_WINDOW_TITLE,
         PROP_WORD_CHAR_EXCEPTIONS,
+        PROP_XALIGN,
+        PROP_YALIGN,
+        PROP_XFILL,
+        PROP_YFILL,
         LAST_PROP,
 
         /* override properties */
@@ -96,5 +114,3 @@ enum {
         PROP_VSCROLL_POLICY
 };
 extern GParamSpec *pspecs[LAST_PROP];
-
-const GtkBorder default_padding = { 1, 1, 1, 1 };

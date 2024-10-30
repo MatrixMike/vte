@@ -3,15 +3,14 @@
 # This file is distributed under the same license as the program package.
 #
 # Andraž Tori <andraz.tori1@guest.arnes.si> 2002.
-# Matej Urbančič <mateju@svn.gnome.org>, 2006-2016.
+# Matej Urbančič <mateju@svn.gnome.org>, + 2006–2020.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: vte\n"
-"Report-Msgid-Bugs-To: http://bugzilla.gnome.org/enter_bug.cgi?"
-"product=vte&keywords=I18N+L10N&component=general\n"
-"POT-Creation-Date: 2016-08-25 22:47+0200\n"
-"PO-Revision-Date: 2016-08-25 22:48+0200\n"
+"Report-Msgid-Bugs-To: https://gitlab.gnome.org/GNOME/vte/issues\n"
+"POT-Creation-Date: 2020-06-20 22:27+0000\n"
+"PO-Revision-Date: 2020-06-22 21:55+0200\n"
 "Last-Translator: Matej Urbančič <mateju@svn.gnome.org>\n"
 "Language-Team: Slovenian GNOME Translation Team <gnome-si@googlegroups.com>\n"
 "Language: sl_SI\n"
@@ -21,33 +20,57 @@ msgstr ""
 "Plural-Forms: nplurals=4; plural=(n%100==1 ? 1 : n%100==2 ? 2 : n%100==3 || n"
 "%100==4 ? 3 : 0);\n"
 "X-Poedit-SourceCharset: utf-8\n"
-"X-Generator: Poedit 1.8.7.1\n"
+"X-Generator: Poedit 2.3\n"
 
-#: ../src/iso2022.cc:73 ../src/iso2022.cc:81 ../src/iso2022.cc:111
-#: ../src/vtegtk.cc:3069
-#, c-format
-msgid "Unable to convert characters from %s to %s."
-msgstr "Ni mogoče pretvoriti znakov iz %s v %s."
-
-#. Translators: %s is replaced with error message returned by strerror().
-#: ../src/vte.cc:4002
-#, c-format
-msgid "Error reading from child: %s."
-msgstr "Napaka med branjem podrejenega programa: %s."
-
-#: ../src/vte.cc:4141
-#, c-format
-msgid "Error (%s) converting data for child, dropping."
-msgstr ""
-"Napaka (%s) pretvarjanja podatkov za podrejeni predmet; ukaz je izpuščen."
-
-#: ../src/vte.cc:7910
+#: src/vte.cc:7761
 msgid "WARNING"
 msgstr "OPOZORILO"
 
-#: ../src/vte.cc:7911
-msgid "GNUTLS not enabled; data will be written to disk unencrypted!"
-msgstr "Paket GNUTLS ni omogočen; podatki bodo na disk zapisani nešifrirani!"
+#: src/vte.cc:7763
+msgid "GnuTLS not enabled; data will be written to disk unencrypted!"
+msgstr ""
+"Paket GnuTLS ni omogočen; podatki bodo na disk zapisani na nešifriran način!"
+
+#: src/spawn.cc:111
+#, c-format
+msgid "Failed to set pipe nonblocking: %s"
+msgstr "Ni mogoče nastaviti cevi: %s"
+
+#: src/spawn.cc:155
+#, c-format
+msgid "poll error: %s"
+msgstr "napaka preverjanja: %s"
+
+#: src/spawn.cc:161
+msgid "Operation timed out"
+msgstr "Opravilo je časovno poteklo"
+
+#: src/spawn.cc:171
+msgid "Operation was cancelled"
+msgstr "Opravilo je preklicano"
+
+#: src/spawn.cc:189
+#, c-format
+msgid "Failed to read from child pipe (%s)"
+msgstr "Napaka med branjem podrejenega vodila (%s)."
+
+#: src/spawn.cc:576
+#, c-format
+msgid "Failed to change to directory “%s”: %s"
+msgstr "Spreminjanje mape je spodletelo »%s«: %s"
+
+#: src/spawn.cc:645
+#, c-format
+msgid "Failed to execute child process “%s”: "
+msgstr "Izvajanje podrejenega opravila je spodletelo »%s«: "
+
+#~ msgid "Unable to convert characters from %s to %s."
+#~ msgstr "Ni mogoče pretvoriti znakov iz %s v %s."
+
+#~ msgid "Error (%s) converting data for child, dropping."
+#~ msgstr ""
+#~ "Napaka (%s) pretvarjanja podatkov za podrejeni predmet; izvajanjeukaza je "
+#~ "preklicano."
 
 #~ msgid "Copy"
 #~ msgstr "Kopiraj"

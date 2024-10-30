@@ -1,19 +1,18 @@
 /*
  * Copyright © 2013 Christian Persch
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -32,14 +31,9 @@
 #include <sys/ioctl.h>
 #include <linux/fs.h>
 
-#ifndef O_TMPFILE
-#ifndef __O_TMPFILE
-#define __O_TMPFILE     020000000
-#endif
-#define O_TMPFILE (__O_TMPFILE | O_DIRECTORY)
-#endif
-
 #endif /* __linux__ */
+
+#include "missing.hh"
 
 int
 _vte_mkstemp (void)
@@ -92,16 +86,3 @@ _vte_mkstemp (void)
 
         return fd;
 }
-
-#ifndef HAVE_STRCHRNUL
-/* Copied from glib */
-char *
-strchrnul (const char *s, int c)
-{
-        char *p = (char *) s;
-        while (*p && (*p != c))
-                ++p;
-
-        return p;
-}
-#endif /* !HAVE_STRCHRNUL */

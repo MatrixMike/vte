@@ -1,18 +1,18 @@
 /*
  * Copyright © 2015 Christian Persch
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -20,57 +20,21 @@
 #include <glib.h>
 
 #include "vtetypes.hh"
+#include "libc-glue.hh"
 
 #include <type_traits>
 
-static_assert(std::is_pod<vte::grid::coords>::value, "vte::grid::coords not POD");
 static_assert(sizeof(vte::grid::coords) == 2 * sizeof(long), "vte::grid::coords size wrong");
 
-static_assert(std::is_pod<vte::grid::span>::value, "vte::grid::span not POD");
 static_assert(sizeof(vte::grid::span) == 4 * sizeof(long), "vte::grid::span size wrong");
 
-static_assert(std::is_pod<vte::view::coords>::value, "vte::view::coords not POD");
+static_assert(std::is_standard_layout_v<vte::view::coords> && std::is_trivial_v<vte::view::coords>, "vte::view::coords not POD");
 static_assert(sizeof(vte::view::coords) == 2 * sizeof(vte::view::coord_t), "vte::view::coords size wrong");
 
-static_assert(std::is_pod<vte::color::rgb>::value, "vte::color::rgb not POD");
+static_assert(std::is_standard_layout_v<vte::color::rgb> && std::is_trivial_v<vte::color::rgb>, "vte::color::rgb not POD");
 static_assert(sizeof(vte::color::rgb) == sizeof(PangoColor), "vte::color::rgb size wrong");
 
-static_assert(sizeof(vte::util::smart_fd) == sizeof(int), "vte::util::smart_fd size wrong");
-
-/* Colours mix */
-vte::color::rgb::rgb(vte::color::rgb const& foreground,
-                     vte::color::rgb const& background,
-                     double factor)
-{
-        double fy, fcb, fcr, by, bcb, bcr, r, g, b;
-	fy =   0.2990 * foreground.red +
-               0.5870 * foreground.green +
-               0.1140 * foreground.blue;
-        fcb = -0.1687 * foreground.red +
-              -0.3313 * foreground.green +
-               0.5000 * foreground.blue;
-        fcr =  0.5000 * foreground.red +
-              -0.4187 * foreground.green +
-              -0.0813 * foreground.blue;
-        by =   0.2990 * background.red +
-               0.5870 * background.green +
-               0.1140 * background.blue;
-        bcb = -0.1687 * background.red +
-              -0.3313 * background.green +
-               0.5000 * background.blue;
-        bcr =  0.5000 * background.red +
-              -0.4187 * background.green +
-              -0.0813 * background.blue;
-        fy = (factor * fy) + ((1.0 - factor) * by);
-        fcb = (factor * fcb) + ((1.0 - factor) * bcb);
-        fcr = (factor * fcr) + ((1.0 - factor) * bcr);
-        r = fy + 1.402 * fcr;
-        g = fy + 0.34414 * fcb - 0.71414 * fcr;
-        b = fy + 1.722 * fcb;
-        red = CLAMP(r, 0, 0xffff);
-        green = CLAMP(g, 0, 0xffff);
-        blue = CLAMP(b, 0, 0xffff);
-}
+static_assert(sizeof(vte::libc::FD) == sizeof(int), "vte::libc::FD size wrong");
 
 vte::color::rgb::rgb(GdkRGBA const* rgba) {
         g_assert(rgba);
@@ -112,7 +76,7 @@ vte::color::rgb::parse(char const* spec)
 	return retval;
 }
 
-#ifdef VTE_DEBUG
+#if VTE_DEBUG
 
 #define DEBUG_STRING_SIZE (256)
 #define DEBUG_STRING_SLICES (64)
@@ -140,13 +104,21 @@ vte::grid::coords::to_string() const
 }
 
 char const*
+vte::grid::halfcoords::to_string() const
+{
+        char *buf = debug_get_buf();
+        g_snprintf(buf, DEBUG_STRING_SIZE, "halfgrid[%ld,%ld%c]", row(), halfcolumn().column(), halfcolumn().half() ? 'R' : 'L');
+        return buf;
+}
+
+char const*
 vte::grid::span::to_string() const
 {
         if (empty())
                 return "grid[empty]";
 
         char *buf = debug_get_buf();
-        g_snprintf(buf, DEBUG_STRING_SIZE, "grid[%ld,%ld .. %ld,%ld]",
+        g_snprintf(buf, DEBUG_STRING_SIZE, "grid[(%ld,%ld), (%ld,%ld))",
                    start_row(), start_column(), end_row(), end_column());
         return buf;
 }
@@ -178,6 +150,8 @@ vte::color::rgb::to_string() const
 #endif /* VTE_DEBUG */
 
 #ifdef MAIN
+
+#pragma GCC diagnostic ignored "-Wunused-variable"
 
 #include <glib.h>
 
@@ -230,11 +204,66 @@ test_grid_coords (void)
         g_assert_false(coords(42, 42) >= coords(43, 160));
         g_assert_false(coords(42, 42) >  coords(43, 160));
 
-#ifdef VTE_DEBUG
+#if VTE_DEBUG
         /* to_string() */
         g_assert_cmpstr(vte::grid::coords(17, 42).to_string(), ==, "grid[17,42]");
 #endif
 }
+
+static void
+test_grid_halfcoords (void)
+{
+        /* Default constructor */
+        halfcoords p1;
+
+        /* Construction and assignment */
+
+        halfcoords p2(16, halfcolumn_t(32, 1));
+        g_assert_cmpint(p2.row(), ==, 16);
+        g_assert_cmpint(p2.halfcolumn().column(), ==, 32);
+        g_assert_cmpint(p2.halfcolumn().half(), ==, 1);
+
+        /* Comparision operators */
+
+        halfcoords a (10, halfcolumn_t(20, 1));
+        halfcoords a2(10, halfcolumn_t(20, 1));
+        halfcoords b (10, halfcolumn_t(21, 0));
+        halfcoords c (10, halfcolumn_t(21, 1));
+        halfcoords d (10, halfcolumn_t(22, 0));
+        halfcoords e (11, halfcolumn_t( 5, 0));
+
+        g_assert_true (a <= a2);
+        g_assert_false(a <  a2);
+        g_assert_false(a >  a2);
+        g_assert_true (a >= a2);
+
+        g_assert_true (a <= b);
+        g_assert_true (a <  b);
+        g_assert_false(a >  b);
+        g_assert_false(a >= b);
+
+        g_assert_true (b <= c);
+        g_assert_true (b <  c);
+        g_assert_false(b >  c);
+        g_assert_false(b >= c);
+
+        g_assert_true (c <= d);
+        g_assert_true (c <  d);
+        g_assert_false(c >  d);
+        g_assert_false(c >= d);
+
+        g_assert_true (d <= e);
+        g_assert_true (d <  e);
+        g_assert_false(d >  e);
+        g_assert_false(d >= e);
+
+#if VTE_DEBUG
+        /* to_string() */
+        g_assert_cmpstr(halfcoords(16, 32, 0).to_string(), ==, "halfgrid[16,32L]");
+        g_assert_cmpstr(halfcoords(16, 32, 1).to_string(), ==, "halfgrid[16,32R]");
+#endif
+}
+
 
 static void
 test_grid_span (void)
@@ -289,8 +318,7 @@ test_grid_span (void)
         g_assert_false(s6.contains(coords(16, 15)));
         g_assert_true (s6.contains(coords(16, 16)));
         g_assert_true (s6.contains(coords(16, 31)));
-        g_assert_true (s6.contains(coords(16, 32)));
-        g_assert_false(s6.contains(coords(16, 33)));
+        g_assert_false(s6.contains(coords(16, 32)));
         g_assert_false(s6.contains(coords(17, 15)));
         g_assert_false(s6.contains(coords(17, 16)));
 
@@ -301,8 +329,8 @@ test_grid_span (void)
         g_assert_true (s7.contains(coords(16, 42)));
         g_assert_true (s7.contains(coords(17, 42)));
         g_assert_true (s7.contains(coords(31, 100)));
-        g_assert_true (s7.contains(coords(32, 8)));
-        g_assert_false(s7.contains(coords(32, 9)));
+        g_assert_true (s7.contains(coords(32, 7)));
+        g_assert_false(s7.contains(coords(32, 8)));
         g_assert_false(s7.contains(coords(33, 2)));
 
         span s8(16, 16, 32, 32);
@@ -312,25 +340,32 @@ test_grid_span (void)
         g_assert_false(s8.box_contains(coords(16, 15)));
         g_assert_true (s8.box_contains(coords(16, 16)));
         g_assert_true (s8.box_contains(coords(16, 24)));
-        g_assert_true (s8.box_contains(coords(16, 32)));
-        g_assert_false(s8.box_contains(coords(16, 33)));
+        g_assert_true (s8.box_contains(coords(16, 31)));
+        g_assert_false(s8.box_contains(coords(16, 32)));
         g_assert_false(s8.box_contains(coords(24, 15)));
         g_assert_true (s8.box_contains(coords(24, 16)));
         g_assert_true (s8.box_contains(coords(24, 24)));
-        g_assert_true (s8.box_contains(coords(24, 32)));
-        g_assert_false(s8.box_contains(coords(24, 33)));
+        g_assert_true (s8.box_contains(coords(24, 31)));
+        g_assert_false(s8.box_contains(coords(24, 32)));
         g_assert_false(s8.box_contains(coords(32, 15)));
         g_assert_true (s8.box_contains(coords(32, 16)));
         g_assert_true (s8.box_contains(coords(32, 24)));
-        g_assert_true (s8.box_contains(coords(32, 32)));
-        g_assert_false(s8.box_contains(coords(32, 33)));
+        g_assert_true (s8.box_contains(coords(32, 31)));
+        g_assert_false(s8.box_contains(coords(32, 32)));
         g_assert_false(s8.box_contains(coords(33, 15)));
         g_assert_false(s8.box_contains(coords(33, 24)));
-        g_assert_false(s8.box_contains(coords(3, 42)));
+        g_assert_false(s8.box_contains(coords(33, 42)));
 
-#ifdef VTE_DEBUG
+        /* last_row */
+        span s9(16, 16, 32, 0);
+        g_assert_cmpint(s9.last_row(), ==, 31);
+
+        span s10(16, 16, 32, 1);
+        g_assert_cmpint(s10.last_row(), ==, 32);
+
+#if VTE_DEBUG
         /* to_string() */
-        g_assert_cmpstr(vte::grid::span(17, 42, 18, 3).to_string(), ==, "grid[17,42 .. 18,3]");
+        g_assert_cmpstr(vte::grid::span(17, 42, 18, 3).to_string(), ==, "grid[(17,42), (18,3))");
 #endif
 }
 
@@ -360,7 +395,7 @@ test_view_coords (void)
         g_assert_true(p3 == p4);
         g_assert_true(p5 == p2);
 
-#ifdef VTE_DEBUG
+#if VTE_DEBUG
         /* to_string() */
         g_assert_cmpstr(vte::view::coords(256, 512).to_string(), ==, "view[256,512]");
 #endif
@@ -377,31 +412,10 @@ test_util_restore_errno(void)
 {
         errno = -42;
         {
-                vte::util::restore_errno errsv;
+                vte::libc::ErrnoSaver errsv;
                 errno = 36;
         }
         g_assert_cmpint(errno, ==, -42);
-}
-
-static void
-test_util_smart_fd(void)
-{
-        vte::util::smart_fd fd2;
-        g_assert_true(fd2 == -1);
-
-        fd2 = 42;
-        g_assert_true(fd2 == 42);
-
-        vte::util::smart_fd fd3(STDERR_FILENO);
-        g_assert_true(fd3 != -1);
-        g_assert_true(fd3 == STDERR_FILENO);
-
-        g_assert_cmpint(fd3.steal(), ==, STDERR_FILENO);
-        g_assert_true(fd3 == -1);
-
-        int *v = fd3;
-        *v = 42;
-        g_assert_true(fd3 == 42);
 }
 
 int
@@ -410,11 +424,11 @@ main(int argc, char *argv[])
         g_test_init (&argc, &argv, nullptr);
 
         g_test_add_func("/vte/c++/grid/coords", test_grid_coords);
+        g_test_add_func("/vte/c++/grid/halfcoords", test_grid_halfcoords);
         g_test_add_func("/vte/c++/grid/span", test_grid_span);
         g_test_add_func("/vte/c++/color/rgb", test_color_rgb);
         g_test_add_func("/vte/c++/view/coords", test_view_coords);
         g_test_add_func("/vte/c++/util/restore-errno", test_util_restore_errno);
-        g_test_add_func("/vte/c++/util/smart-fd", test_util_smart_fd);
 
         return g_test_run();
 }
