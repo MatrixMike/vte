@@ -17,7 +17,7 @@
 project(
   'vte',
   ['c', 'cpp'],
-  version: '0.79.0',
+  version: '0.81.0',
   license: ['LGPL-3.0-or-later', 'GPL-3.0-or-later'],
   default_options: [
     'buildtype=release',
@@ -231,7 +231,7 @@ endif
 libc_feature_defines = [
   ['_GNU_SOURCE', '1'],
   ['_POSIX_C_SOURCE', '200809L'],
-  ['_XOPEN_SOURCE', '700'],
+  ['_XOPEN_SOURCE', '800'],
   ['_XOPEN_SOURCE_EXTENDED', '1'],
 ]
 
@@ -268,11 +268,18 @@ endforeach
 # Check for symbols
 
 check_symbols_required = [
-  ['TIOCGWINSZ', 'sys/ioctl.h'],
+  ['TIOCGWINSZ', ['sys/ioctl.h', 'sys/termios.h',]],
 ]
 
 foreach symbol: check_symbols_required
-  assert(cxx.has_header_symbol(symbol[1], symbol[0]), symbol[0] + ' not found')
+  found=false
+  foreach header : symbol[1]
+    if cxx.has_header_symbol(header, symbol[0])
+      found=true
+      break
+    endif
+  endforeach
+  assert(found, symbol[0] + ' not found')
 endforeach
 
 # Check for functions
@@ -344,7 +351,7 @@ check_functions = [
   ],
   [
     'pread',
-    'ssize_t (*func)(int, void*, size_t off_t)',
+    'ssize_t (*func)(int, void*, size_t, off_t)',
      ['unistd.h'],
      [],
      false,
@@ -582,6 +589,29 @@ endforeach
 release_args = []
 if not enable_debug
   release_args += ['-DG_DISABLE_ASSERT', '-DG_DISABLE_CAST_CHECKS']
+endif
+
+# Check for excess float precision
+# https://gitlab.gnome.org/GNOME/vte/-/issues/2854
+
+if cxx.compiles('''
+    #include <cfloat>
+    static_assert(FLT_EVAL_METHOD == 2, "no excess");
+    int main(void) { return 0; }
+    ''',
+    args: [
+      cxx_std_opt,
+    ],
+    name: 'excess precision check',
+  )
+
+  fexcess_precision_flags = [
+    '-fexcess-precision=fast',
+    '-ffloat-store',
+  ]
+
+  global_cflags += cc.get_supported_arguments(fexess_precision_flags)
+  global_cxxflags += cxx.get_supported_arguments(fexess_precision_flags)
 endif
 
 # ... and now make these flags the default

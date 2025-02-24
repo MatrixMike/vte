@@ -180,4 +180,71 @@ gboolean vte_query_termprop_by_id(int prop,
  */
 #define VTE_TERMPROP_SHELL_POSTEXEC "vte.shell.postexec"
 
+/**
+ * VTE_TERMPROP_PROGRESS_HINT:
+ *
+ * A %VTE_PROPERTY_INT termprop that stores a hint how to interpret
+ * the %VTE_TERMPROP_PROGRESS_VALUE termprop value. If set, this
+ * termprop's value will be from the #VteProgressHint enumeration.
+ * An unset termprop should be treated as if it had value
+ * %VTE_PROGRESS_HINT_ACTIVE if the %VTE_TERMPROP_PROGRESS_VALUE
+ * termprop has a value
+ *
+ * Note that this termprop never will have the value
+ * %VTE_PROGRESS_HINT_INACTIVE.
+ *
+ * The value of this termprop should be ignored unless the
+ * %VTE_TERMPROP_PROGRESS_VALUE termprop has a value.
+ *
+ * Note that before version 0.82, this termprop could not be set by
+ * the termprop OSC, but instead only by OSC 9 ; 4 (ConEmu progress).
+ *
+ * Since: 0.80
+ */
+#define VTE_TERMPROP_PROGRESS_HINT "vte.progress.hint"
+
+/**
+ * VTE_TERMPROP_PROGRESS_VALUE:
+ *
+ * A %VTE_PROPERTY_UINT termprop that stores the progress of the running
+ * command as a value between 0 and 100.
+ *
+ * Note that before version 0.82, this termprop could not be set by
+ * the termprop OSC, but instead only by OSC 9 ; 4 (ConEmu progress).
+ *
+ * Since: 0.80
+ */
+#define VTE_TERMPROP_PROGRESS_VALUE "vte.progress.value"
+
+/*
+ * VTE_TERMPROP_ICON_COLOR:
+ *
+ * A %VTE_PROPERTY_RGB termprop to specify a color for use
+ * in a favicon or tab highlight.
+ *
+ * Aapplications should use this if the %VTE_TERMPROP_ICON_IMAGE
+ * termprop is unset.
+ *
+ * Since: 0.80
+ */
+#define VTE_TERMPROP_ICON_COLOR "vte.icon.color"
+
+/**
+ * VTE_TERMPROP_ICON_IMAGE:
+ *
+ * A %VTE_PROPERTY_IMAGE termprop to specify an image for use
+ * as a favicon.
+ *
+ * Applications should prefer to use this termprop, if set, over
+ * the %VTE_TERMPROP_ICON_COLOR color.
+ *
+ * Note that this termprop is not settable via the termprop OSC.
+ * Instead, if the #VteTerminal:enable-sixel property is %TRUE,
+ * this termprop can be set from a SIXEL image sequence with the
+ * fourth parameter (ID) set to 65535.
+ *
+ * Since: 0.80
+ */
+#define VTE_TERMPROP_ICON_IMAGE "vte.icon.image"
+
 G_END_DECLS

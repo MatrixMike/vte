@@ -1810,7 +1810,7 @@ Terminal::set_termprop_uri(vte::parser::Sequence const& seq,
                            int termprop_id,
                            PendingChanges legacy_pending_change) noexcept
 {
-        auto const info = get_termprop_info(termprop_id);
+        auto const info = m_termprops.registry().lookup(termprop_id);
         assert(info);
 
         auto set = false;
@@ -1819,10 +1819,10 @@ Terminal::set_termprop_uri(vte::parser::Sequence const& seq,
 
                 // Only parse the URI if the termprop doesn't already have the
                 // same string value
-                if (auto const old_value = get_termprop(*info);
+                if (auto const old_value = m_termprops.value(*info);
                     !old_value ||
-                    !std::holds_alternative<vte::terminal::TermpropURIValue>(*old_value) ||
-                    std::get<vte::terminal::TermpropURIValue>(*old_value).second != str) {
+                    !std::holds_alternative<vte::property::URIValue>(*old_value) ||
+                    std::get<vte::property::URIValue>(*old_value).second != str) {
 
                         if (auto uri = vte::take_freeable(g_uri_parse(str.c_str(),
                                                                       GUriFlags(G_URI_FLAGS_ENCODED),
@@ -1831,9 +1831,9 @@ Terminal::set_termprop_uri(vte::parser::Sequence const& seq,
                             g_strcmp0(g_uri_get_scheme(uri.get()), "file") == 0) {
 
                                 set = true;
-                                m_termprops_dirty.at(info->id()) = true;
-                                m_termprop_values.at(info->id()) =
-                                        vte::terminal::TermpropValue{std::in_place_type<vte::terminal::TermpropURIValue>,
+                                m_termprops.dirty(info->id()) = true;
+                                *m_termprops.value(info->id()) =
+                                        vte::property::Value{std::in_place_type<vte::property::URIValue>,
                                                                      std::move(uri),
                                                                      str};
                         } else {
@@ -1844,7 +1844,7 @@ Terminal::set_termprop_uri(vte::parser::Sequence const& seq,
                 }
         } else {
                 // Only reset the termprop if it's not already reset
-                if (auto const old_value = get_termprop(*info);
+                if (auto const old_value = m_termprops.value(*info);
                     !old_value ||
                     !std::holds_alternative<std::monostate>(*old_value)) {
                         set = true;
@@ -1966,7 +1966,7 @@ Terminal::set_current_shell_integration_mode(vte::parser::Sequence const& seq,
 
 void
 Terminal::reply_termprop_query(vte::parser::Sequence const& seq,
-                               vte::terminal::TermpropInfo const* info)
+                               vte::property::Registry::Property const* info)
 {
         // Since this is only used in test mode, we just send one
         // OSC reply per query, instead of trying to consolidate
@@ -1974,16 +1974,16 @@ Terminal::reply_termprop_query(vte::parser::Sequence const& seq,
 
         auto str = std::string{info->name()};
         switch (info->type()) {
-                using enum vte::terminal::TermpropType;
+                using enum vte::property::Type;
         case VALUELESS:
-                if (m_termprops_dirty.at(info->id()))
+                if (m_termprops.dirty(info->id()))
                         str.push_back('!');
                 break;
 
         default:
                 if (auto const vstr =
-                    vte::terminal::unparse_termprop_value(info->type(),
-                                                          m_termprop_values.at(info->id()))) {
+                    vte::property::unparse_termprop_value(info->type(),
+                                                          *m_termprops.value(info->id()))) {
                         str.push_back('=');
                         str.append(*vstr);
                 }
@@ -2002,45 +2002,59 @@ Terminal::parse_termprop(vte::parser::Sequence const& seq,
 try
 {
         auto const pos = str.find_first_of("=?!"); // possibly str.npos
-        auto const info = vte::terminal::get_termprop_info(str.substr(0, pos));
+        auto const info = m_termprops.registry().lookup(str.substr(0, pos));
 
         // No-OSC termprops cannot be set via the termprop OSC, but they
         // can be queried and reset
         auto const no_osc = info &&
-                (unsigned(info->flags()) & unsigned(vte::terminal::TermpropFlags::NO_OSC)) != 0;
+                (unsigned(info->flags()) & unsigned(vte::property::Flags::NO_OSC)) != 0;
         // Valueless termprops are special in that they can only be
         // emitted or reset, and resetting cancels the emission
         auto const is_valueless = info &&
-                info->type() == vte::terminal::TermpropType::VALUELESS;
+                info->type() == vte::property::Type::VALUELESS;
 
         if (pos == str.npos) {
                 // Reset
                 //
                 // Allow reset even for no-OSC termprops
                 if (info &&
-                    !std::holds_alternative<std::monostate>(m_termprop_values.at(info->id()))) {
+                    !std::holds_alternative<std::monostate>(*m_termprops.value(info->id()))) {
                         set = true;
-                        m_termprops_dirty.at(info->id()) = !is_valueless;
-                        m_termprop_values.at(info->id()) = {};
+                        m_termprops.dirty(info->id()) = !is_valueless;
+                        *m_termprops.value(info->id()) = {};
+                }
+
+                // Prefix reset
+                // Reset all termprops whose name starts with the prefix
+                else if (!info && str.ends_with('.')) {
+                        for (auto const& prop_info : m_termprops.registry().get_all()) {
+                                if (!std::string_view{prop_info.name()}.starts_with(str))
+                                        continue;
+
+                                if (!std::holds_alternative<std::monostate>(*m_termprops.value(prop_info.id()))) {
+                                        set = true;
+                                        m_termprops.dirty(prop_info.id()) = prop_info.type() != vte::property::Type::VALUELESS;
+                                        *m_termprops.value(prop_info.id()) = {};
+                                }
+                        }
                 }
         } else if (str[pos] == '=' &&
                    info &&
                    !is_valueless &&
                    !no_osc) {
-                if (auto value = vte::terminal::parse_termprop_value(info->type(),
-                                                                     str.substr(pos + 1))) {
+                if (auto value = info->parse(str.substr(pos + 1))) {
                         // Set
-                        if (value != m_termprop_values.at(info->id())) {
+                        if (value != *m_termprops.value(info->id())) {
                                 set = true;
-                                m_termprop_values.at(info->id()) = std::move(*value);
-                                m_termprops_dirty.at(info->id()) = true;
+                                *m_termprops.value(info->id()) = std::move(*value);
+                                m_termprops.dirty(info->id()) = true;
                         }
                 } else {
                         // Reset
-                        if (!std::holds_alternative<std::monostate>(m_termprop_values.at(info->id()))) {
+                        if (!std::holds_alternative<std::monostate>(*m_termprops.value(info->id()))) {
                                 set = true;
-                                m_termprop_values.at(info->id()) = {};
-                                m_termprops_dirty.at(info->id()) = true;
+                                *m_termprops.value(info->id()) = {};
+                                m_termprops.dirty(info->id()) = true;
                         }
                 }
         } else if (str[pos] == '?') {
@@ -2064,10 +2078,10 @@ try
                     info &&
                     is_valueless &&
                     !no_osc &&
-                    !m_termprops_dirty.at(info->id())) {
+                    !m_termprops.dirty(info->id())) {
                         // Signal
                         set = true;
-                        m_termprops_dirty.at(info->id()) = true;
+                        m_termprops.dirty(info->id()) = true;
                         // no need to set/reset the value
                 }
         }
@@ -2135,27 +2149,32 @@ try
 
         auto maybe_set_termprop_void = [&](int prop,
                                            bool set = true) -> void {
-                if (auto const info = get_termprop_info(prop);
-                    info && info->type() == vte::terminal::TermpropType::VALUELESS) {
-                        m_termprops_dirty.at(info->id()) = set;
-                        m_termprop_values.at(info->id()) = {};
+                if (auto const info = m_termprops.registry().lookup(prop);
+                    info && info->type() == vte::property::Type::VALUELESS) {
+                        m_termprops.dirty(info->id()) = set;
+                        *m_termprops.value(info->id()) = {};
                         m_pending_changes |= vte::to_integral(PendingChanges::TERMPROPS);
                 }
         };
 
         auto maybe_set_termprop = [&](int prop,
                                       auto&& value) -> void {
-                if (auto const info = get_termprop_info(prop)) {
-                        m_termprops_dirty.at(info->id()) = true;
-                        m_termprop_values.at(info->id()) = std::move(value);
+                auto propvalue = vte::property::Value{std::move(value)};
+                if (auto const info = m_termprops.registry().lookup(prop);
+                    info &&
+                    propvalue != *m_termprops.value(info->id())) {
+                        m_termprops.dirty(info->id()) = true;
+                        *m_termprops.value(info->id()) = std::move(propvalue);
                         m_pending_changes |= vte::to_integral(PendingChanges::TERMPROPS);
                 }
         };
 
         auto maybe_reset_termprop = [&](int prop) -> void {
-                if (auto const info = get_termprop_info(prop)) {
-                        m_termprops_dirty.at(info->id()) = true;
-                        m_termprop_values.at(info->id()) = {};
+                if (auto const info = m_termprops.registry().lookup(prop);
+                    info &&
+                    !std::holds_alternative<std::monostate>(*m_termprops.value(info->id()))) {
+                        m_termprops.dirty(info->id()) = true;
+                        *m_termprops.value(info->id()) = {};
                         m_pending_changes |= vte::to_integral(PendingChanges::TERMPROPS);
                 }
         };
@@ -2207,13 +2226,120 @@ try
                         if (++token == endtoken)
                                 return;
 
-                        if (auto value = vte::terminal::parse_termprop_value(vte::terminal::TermpropType::UINT, *token)) {
+                        if (auto value = vte::property::parse_termprop_value(vte::property::Type::UINT, *token)) {
                                 maybe_set_termprop(VTE_PROPERTY_ID_CONTAINER_UID, *value);
                         }
 
                 } else if (subcmd == "pop") {
                         // already reset above
                 }
+        }
+}
+catch (...)
+{
+        // nothing to do here
+}
+
+// Terminal::conemu_extension:
+//
+// Parse a ConEmu OSC 9 sequence.
+//
+// Only the "9 ; 4" subfunction to set a progress state is implemented by vte,
+// and sets the %VTE_TERMPROP_PROGRESS termprop, either to a value between 0 and
+// 100, or to -1 for an indeterminate progress. "Paused" and "error" progress states
+// are mapped to an unset termprop.
+//
+// References: ConEmu [https://github.com/ConEmu/ConEmu.github.io/blob/master/_includes/AnsiEscapeCodes.md#ConEmu_specific_OSC]
+//
+void
+Terminal::conemu_extension(vte::parser::Sequence const& seq,
+                           vte::parser::StringTokeniser::const_iterator& token,
+                           vte::parser::StringTokeniser::const_iterator const& endtoken) noexcept
+try
+{
+        // Note: since this is conemu OSC, and conemu allows BEL
+        // termination, we also allow BEL termination here; so no
+        // `seq.is_st_bel()` early return check here.
+
+        if (token == endtoken)
+                return;
+
+        auto maybe_set_termprop = [&](int prop,
+                                      auto&& value) -> void {
+                auto propvalue = vte::property::Value{std::move(value)};
+                if (auto const info = m_termprops.registry().lookup(prop);
+                    info &&
+                    propvalue != *m_termprops.value(info->id())) {
+                        m_termprops.dirty(info->id()) = true;
+                        *m_termprops.value(info->id()) = std::move(propvalue);
+                        m_pending_changes |= vte::to_integral(PendingChanges::TERMPROPS);
+                }
+        };
+
+        auto maybe_reset_termprop = [&](int prop) -> void {
+                if (auto const info = m_termprops.registry().lookup(prop);
+                    info &&
+                    !std::holds_alternative<std::monostate>(*m_termprops.value(info->id()))) {
+                        m_termprops.dirty(info->id()) = true;
+                        *m_termprops.value(info->id()) = {};
+                        m_pending_changes |= vte::to_integral(PendingChanges::TERMPROPS);
+                }
+        };
+
+        auto const subfunction = token.number();
+        ++token;
+
+        switch (subfunction.value_or(0)) {
+        case 4: { // progress
+                auto const st = (token != endtoken) ? token.number() : 0;
+                if (token != endtoken)
+                        ++token;
+
+                auto const pr = (token != endtoken) ? token.number().value_or(0) : 0;
+
+                switch (st.value_or(0)) {
+                case 0: // reset
+                        maybe_reset_termprop(VTE_PROPERTY_ID_PROGRESS_HINT);
+                        maybe_reset_termprop(VTE_PROPERTY_ID_PROGRESS_VALUE);
+                        return;
+
+                case 1: // running
+                        maybe_set_termprop(VTE_PROPERTY_ID_PROGRESS_HINT,
+                                           int64_t(VTE_PROGRESS_HINT_ACTIVE));
+                        maybe_set_termprop(VTE_PROPERTY_ID_PROGRESS_VALUE,
+                                           uint64_t(pr));
+                        return;
+
+                case 2: // error
+                        maybe_set_termprop(VTE_PROPERTY_ID_PROGRESS_HINT,
+                                           int64_t(VTE_PROGRESS_HINT_ERROR));
+                        maybe_set_termprop(VTE_PROPERTY_ID_PROGRESS_VALUE,
+                                           uint64_t(pr));
+                        return;
+
+                case 3: // indeterminate
+                        maybe_set_termprop(VTE_PROPERTY_ID_PROGRESS_HINT,
+                                           int64_t(VTE_PROGRESS_HINT_INDETERMINATE));
+                        maybe_set_termprop(VTE_PROPERTY_ID_PROGRESS_VALUE,
+                                           uint64_t(0));
+                        return;
+
+                case 4: // paused
+                        maybe_set_termprop(VTE_PROPERTY_ID_PROGRESS_HINT,
+                                           int64_t(VTE_PROGRESS_HINT_PAUSED));
+                        maybe_set_termprop(VTE_PROPERTY_ID_PROGRESS_VALUE,
+                                           uint64_t(pr));
+                        return;
+
+                case 5: // long running start, not implemented
+                case 6: // long running end, not implemented
+                default: // unkown
+                        return;
+                }
+        }
+
+        default: // other subfunctions not implemented in vte
+                return;
         }
 }
 catch (...)
@@ -4725,6 +4851,7 @@ Terminal::DECRQSS(vte::parser::Sequence const& seq)
         case VTE_CMD_DECSZS:
         case VTE_CMD_DECTME:
         case VTE_CMD_XTERM_MODKEYS:
+        case VTE_CMD_XTERM_STM:
         default:
                 return reply(seq, VTE_REPLY_DECRPSS, {0});
         }
@@ -5319,6 +5446,7 @@ Terminal::DECSGR(vte::parser::Sequence const& seq)
 
 bool
 Terminal::DECSIXEL(vte::parser::Sequence const& seq)
+try
 {
         /*
          * DECSIXEL - SIXEL graphics
@@ -5420,41 +5548,67 @@ Terminal::DECSIXEL(vte::parser::Sequence const& seq)
                 break;
         }
 
+        auto fore = unsigned{}, back = unsigned{};
+        auto fg = vte::color::rgb{}, bg = vte::color::rgb{};
+        resolve_normal_colors(&m_defaults, &fore, &back, fg, bg);
+
+        auto private_color_registers = m_modes_private.XTERM_SIXEL_PRIVATE_COLOR_REGISTERS();
+
+        // Image ID is a nonstandard RLogin extension. Vte doesn't support
+        // image IDs for regular SIXEL images, but uses a special 65535 (-1)
+        // image ID to set the %VTE_TERMPROP_ICON_IMAGE termprop.
+        auto const id = seq.collect1(3);
+        if (id != -1) [[unlikely]] { // non-defaulted param
+                if (id == vte::sixel::Context::k_termprop_icon_image_id) {
+                        // We always set transparency for this ID, use
+                        // private colour registers, and black as fg
+                        transparent_bg = true;
+                        private_color_registers = true;
+                        fg = vte::color::rgb{0, 0, 0};
+                } else {
+                        process_sixel = false;
+                }
+        }
+
         /* Ignore the whole sequence */
         if (!process_sixel || seq.is_ripe() /* that shouldn't happen */) {
                 m_parser.ignore_until_st();
                 return false;
         }
 
-        auto fore = unsigned{}, back = unsigned{};
-        auto fg = vte::color::rgb{}, bg = vte::color::rgb{};
-        resolve_normal_colors(&m_defaults, &fore, &back, fg, bg);
+        if (!m_sixel_context)
+                m_sixel_context = std::make_unique<vte::sixel::Context>();
 
-        try {
-                if (!m_sixel_context)
-                        m_sixel_context = std::make_unique<vte::sixel::Context>();
+        m_sixel_context->prepare(id,
+                                 seq.introducer(),
+                                 fg.red >> 8, fg.green >> 8, fg.blue >> 8,
+                                 bg.red >> 8, bg.green >> 8, bg.blue >> 8,
+                                 back == VTE_DEFAULT_BG || transparent_bg,
+                                 private_color_registers);
 
-                m_sixel_context->prepare(seq.introducer(),
-                                         fg.red >> 8, fg.green >> 8, fg.blue >> 8,
-                                         bg.red >> 8, bg.green >> 8, bg.blue >> 8,
-                                         back == VTE_DEFAULT_BG || transparent_bg,
-                                         m_modes_private.XTERM_SIXEL_PRIVATE_COLOR_REGISTERS());
+        m_sixel_context->set_mode(mode);
 
-                m_sixel_context->set_mode(mode);
+        // We need to reset the main parser, so that when it is in the ground state
+        // when processing returns to the primary data syntax from DECSIXEL.
+        m_parser.reset();
 
-                /* We need to reset the main parser, so that when it is in the ground state
-                 * when processing returns to the primary data syntax from DECSIXEL
-                 */
-                m_parser.reset();
-                push_data_syntax(DataSyntax::DECSIXEL);
+        push_data_syntax(DataSyntax::DECSIXEL);
+        return true; /* switching data syntax */
 
-                return true; /* switching data syntax */
-        } catch (...) {
-        }
-#endif /* WITH_SIXEL */
+#else // !WITH_SIXEL
 
         m_parser.ignore_until_st();
-        return false;
+        return false; // not switching data syntax
+#endif /* WITH_SIXEL */
+}
+catch (...)
+{
+        // We made sure above to switch data syntax at the last opportunity,
+        // and switching doesn't throw. So we know we have still use the main
+        // data syntax and just need to tell the parser to ignore everything
+        // until ST.
+        m_parser.ignore_until_st();
+        return false; // not switching data syntax
 }
 
 void
@@ -7609,19 +7763,19 @@ Terminal::OSC(vte::parser::Sequence const& seq)
         case VTE_OSC_XTERM_SET_WINDOW_AND_ICON_TITLE:
         case VTE_OSC_XTERM_SET_WINDOW_TITLE: {
                 /* Only sets window title; icon title is not supported */
-                auto const info = get_termprop_info(VTE_PROPERTY_ID_XTERM_TITLE);
+                auto const info = m_termprops.registry().lookup(VTE_PROPERTY_ID_XTERM_TITLE);
                 assert(info);
 
                 auto set = false;
                 if (it != cend &&
-                    it.size_remaining() <= vte::terminal::TermpropInfo::k_max_string_len) {
-                        if (auto const old_value = get_termprop(*info);
+                    it.size_remaining() <= vte::property::Registry::k_max_string_len) {
+                        if (auto const old_value = m_termprops.value(*info);
                             !old_value ||
                             !std::holds_alternative<std::string>(*old_value) ||
                             std::get<std::string>(*old_value) != it.string_view_remaining()) {
                                 set = true;
-                                m_termprops_dirty.at(info->id()) = true;
-                                m_termprop_values.at(info->id()) = std::move(it.string_remaining());
+                                m_termprops.dirty(info->id()) = true;
+                                *m_termprops.value(info->id()) = it.string_remaining();
                         }
                 } else {
                         set = true;
@@ -7699,6 +7853,10 @@ Terminal::OSC(vte::parser::Sequence const& seq)
                 urxvt_extension(seq, it, cend);
                 break;
 
+        case VTE_OSC_CONEMU_EXTENSION:
+                conemu_extension(seq, it, cend);
+                break;
+
         case VTE_OSC_XTERM_SET_ICON_TITLE:
         case VTE_OSC_XTERM_SET_XPROPERTY:
         case VTE_OSC_XTERM_SET_COLOR_MOUSE_CURSOR_FG:
@@ -7718,7 +7876,6 @@ Terminal::OSC(vte::parser::Sequence const& seq)
         case VTE_OSC_XTERM_RESET_COLOR_TEK_CURSOR:
         case VTE_OSC_EMACS_51:
         case VTE_OSC_ITERM2_1337:
-        case VTE_OSC_ITERM2_GROWL:
         case VTE_OSC_KONSOLE_30:
         case VTE_OSC_KONSOLE_31:
         case VTE_OSC_RLOGIN_SET_KANJI_MODE:
@@ -8932,13 +9089,20 @@ Terminal::SUB(vte::parser::Sequence const& seq)
         /*
          * SUB - substitute
          * Cancel the current control-sequence and print a replacement
-         * character. Our parser already handles this so all we have to do is
-         * print the replacement character.
+         * character. Our parser already handles the state changes, so
+         * all we have to do is print the character.
+         *
+         * Use U+2426 SYMBOL FOR SUBSTITUTE FORM TWO as the character
+         * to insert, since it was specifically made for this use case
+         * (see https://www.unicode.org/L2/L1998/98353.pdf).
+         * (Previous vte versions used U+FFFD REPLACEMENT CHARACTER.)
+         * See https://gitlab.gnome.org/GNOME/vte/-/issues/2843 .
          *
          * References: ECMA-48 § 8.3.148
+         *             DEC STD 070 p5-132
          */
 
-        insert_char(0xfffdu, true);
+        insert_char(0x2426u, true);
 }
 
 void
@@ -10172,8 +10336,9 @@ Terminal::XTERM_WM(vte::parser::Sequence const& seq)
                                 m_window_title_stack.erase(m_window_title_stack.cbegin());
                         }
 
-                        auto const info = get_termprop_info(VTE_PROPERTY_ID_XTERM_TITLE);
-                        auto const value = get_termprop(*info);
+                        auto const info = m_termprops.registry().lookup(VTE_PROPERTY_ID_XTERM_TITLE);
+                        assert(info);
+                        auto const value = m_termprops.value(*info);
                         if (value &&
                             std::holds_alternative<std::string>(*value))
                                 m_window_title_stack.emplace(m_window_title_stack.cend(),
@@ -10200,9 +10365,10 @@ Terminal::XTERM_WM(vte::parser::Sequence const& seq)
                         if (m_window_title_stack.empty())
                                 break;
 
-                        auto const info = get_termprop_info(VTE_PROPERTY_ID_XTERM_TITLE);
-                        m_termprops_dirty.at(info->id()) = true;
-                        m_termprop_values.at(info->id()) = std::move(m_window_title_stack.back());
+                        auto const info = m_termprops.registry().lookup(VTE_PROPERTY_ID_XTERM_TITLE);
+                        assert(info);
+                        m_termprops.dirty(info->id()) = true;
+                        *m_termprops.value(info->id()) = std::move(m_window_title_stack.back());
                         m_window_title_stack.pop_back();
 
                         m_pending_changes |= vte::to_integral(PendingChanges::TERMPROPS) |
