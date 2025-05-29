@@ -27,13 +27,16 @@
 #error You MUST NOT use -fno-rtti to build vte! Fix your build system; and DO NOT file a bug upstream!
 #endif
 
+#include <climits>
+static_assert(CHAR_BIT == 8, "Weird");
+
 /* END sanity checks */
 
 #include <glib.h>
 #include "glib-glue.hh"
 #include "pango-glue.hh"
 
-#include "debug.h"
+#include "debug.hh"
 #include "clipboard-gtk.hh"
 #if VTE_GTK == 3
 # include "drawing-cairo.hh"
@@ -401,14 +404,16 @@ public:
 
         void push_data_syntax(DataSyntax syntax) noexcept
         {
-                _vte_debug_print(VTE_DEBUG_IO, "Pushing data syntax %d -> %d\n",
+                _vte_debug_print(vte::debug::category::IO,
+                                 "Pushing data syntax {} -> {}",
                                  int(m_current_data_syntax), int(syntax));
                 m_current_data_syntax = syntax;
         }
 
         void pop_data_syntax() noexcept
         {
-                _vte_debug_print(VTE_DEBUG_IO, "Popping data syntax %d -> %d\n",
+                _vte_debug_print(vte::debug::category::IO,
+                                 "Popping data syntax {} -> {}",
                                  int(m_current_data_syntax), int(m_primary_data_syntax));
                 m_current_data_syntax = m_primary_data_syntax;
         }
@@ -827,11 +832,7 @@ public:
         long m_hyperlink_auto_id{0};
 
         /* Accessibility support */
-#if VTE_GTK == 3
         bool m_enable_a11y{true};
-#elif VTE_GTK == 4
-        bool m_enable_a11y{false};
-#endif
 
         /* RingView and friends */
         vte::base::RingView m_ringview;

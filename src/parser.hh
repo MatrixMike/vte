@@ -21,8 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <optional>
-
-#include "debug.h"
+#include <string_view>
 
 #include "parser-arg.hh"
 #include "parser-string.hh"
@@ -145,6 +144,13 @@ enum {
 };
 
 enum {
+        VTE_CHARSET_TYPE_GRAPHIC_94 = 0,
+        VTE_CHARSET_TYPE_GRAPHIC_96 = 1,
+        VTE_CHARSET_TYPE_CONTROL = 2,
+        VTE_CHARSET_TYPE_OCS = 3,
+};
+
+enum {
 #define _VTE_CHARSET_PASTE(name) VTE_CHARSET_##name,
 #define _VTE_CHARSET(name) _VTE_CHARSET_PASTE(name)
 #define _VTE_CHARSET_ALIAS_PASTE(name1,name2) VTE_CHARSET_##name1 = VTE_CHARSET_##name2,
@@ -185,8 +191,12 @@ enum {
 
 #define VTE_CHARSET_CHARSET_MASK   ((1U << 16) - 1U)
 #define VTE_CHARSET_SLOT_OFFSET    (16)
+#define VTE_CHARSET_SLOT_MASK      (3U)
+#define VTE_CHARSET_TYPE_OFFSET    (18)
+#define VTE_CHARSET_TYPE_MASK      (3U)
 #define VTE_CHARSET_GET_CHARSET(c) ((c) & VTE_CHARSET_CHARSET_MASK)
-#define VTE_CHARSET_GET_SLOT(c)    ((c) >> VTE_CHARSET_SLOT_OFFSET)
+#define VTE_CHARSET_GET_SLOT(c)    (((c) >> VTE_CHARSET_SLOT_OFFSET) & VTE_CHARSET_SLOT_MASK)
+#define VTE_CHARSET_GET_TYPE(c)    (((c) >> VTE_CHARSET_TYPE_OFFSET) & VTE_CHARSET_TYPE_MASK)
 
 enum {
       VTE_DISPATCH_UNRIPE = 1u << 0,
@@ -206,12 +216,6 @@ struct vte_seq_t {
         uint32_t introducer;
         uint32_t st;
 };
-
-#ifdef PARSER_INCLUDE_NOP
-# define _VTE_NOQ(...) _VTE_SEQ(__VA_ARGS__)
-#else
-# define _VTE_NOQ(...)
-#endif
 
 /*
  * Terminal Parser
@@ -285,7 +289,13 @@ struct vte_seq_t {
 #define VTE_SEQ_REMOVE_PARAMETER(u)    ((u) >> VTE_SEQ_PARAMETER_BITS)
 #define VTE_SEQ_INTERMEDIATE(u)        ((u) & VTE_SEQ_INTERMEDIATE_MASK)
 #define VTE_SEQ_REMOVE_INTERMEDIATE(u) ((u) >> VTE_SEQ_INTERMEDIATE_BITS)
-#define VTE_MAKE_CHARSET(c,s)          ((c) | ((s) << VTE_CHARSET_SLOT_OFFSET))
+#define VTE_MAKE_CHARSET_FULL(c,s,t) ((c) |                         \
+                                      ((s) << VTE_CHARSET_SLOT_OFFSET) | \
+                                      ((t) << VTE_CHARSET_TYPE_OFFSET))
+#define VTE_MAKE_CHARSET_94(c,s) (VTE_MAKE_CHARSET_FULL(c, s, VTE_CHARSET_TYPE_GRAPHIC_94))
+#define VTE_MAKE_CHARSET_96(c,s) (VTE_MAKE_CHARSET_FULL(c, s, VTE_CHARSET_TYPE_GRAPHIC_96))
+#define VTE_MAKE_CHARSET_CONTROL(c,s) (VTE_MAKE_CHARSET_FULL(c, s, VTE_CHARSET_TYPE_CONTROL))
+#define VTE_MAKE_CHARSET_OCS(c) (VTE_MAKE_CHARSET_FULL(c, 0, VTE_CHARSET_TYPE_OCS))
 
 /*
  * _VTE_SEQ_CODE_ESC(final, intermediates):
@@ -1169,11 +1179,6 @@ public:
 
         typedef int number;
 
-        char* ucs4_to_utf8(gunichar const* str,
-                           ssize_t len = -1) const noexcept;
-
-        void print() const noexcept;
-
         /* type:
          *
          *
@@ -1205,6 +1210,21 @@ public:
         inline constexpr unsigned int charset() const noexcept
         {
                 return VTE_CHARSET_GET_CHARSET(m_seq->charset);
+        }
+
+        /* charset_type:
+         *
+         * This is the type of charset. In a %VTE_CMD_GnDM, or %VTE_CMD_GnDMm
+         * command, this is either %VTE_CHARSET_TYPE_GRAPHIC_94, or
+         * %VTE_CHARSET_TYPEGRAPHIC_96; in a %VTE_CMD_CnD command, this is
+         * %VTE_CHARSET_TYPE_CONTROL, and in a %VTE_CMD_DOCS command, this is
+         * a %VTE_CHARSET_TYPE_OCS charset.
+         *
+         * Returns: the type of the charset
+         */
+        inline constexpr unsigned int charset_type() const noexcept
+        {
+                return VTE_CHARSET_GET_TYPE(m_seq->charset);
         }
 
         /* slot:
@@ -1318,51 +1338,18 @@ public:
                 return m_seq->intermediates;
         }
 
-        // FIXMEchpe: upgrade to C++17 and use the u32string_view version below, instead
         /*
          * string:
          *
-         * This is the string argument of a DCS or OSC sequence.
+         * This is the string argument of a DCS, OSC, APC, PM, or SOS sequence.
          *
-         * Returns: the string argument
+         * Returns: the control string
          */
-        inline std::u32string string() const noexcept
+        inline std::u32string_view string() const noexcept
         {
                 size_t len;
                 auto buf = vte_seq_string_get(&m_seq->arg_str, &len);
-                return std::u32string(reinterpret_cast<char32_t*>(buf), len);
-        }
-
-        #if 0
-        /*
-         * string:
-         *
-         * This is the string argument of a DCS or OSC sequence.
-         *
-         * Returns: the string argument
-         */
-        inline constexpr std::u32string_view string() const noexcept
-        {
-                size_t len = 0;
-                auto buf = vte_seq_string_get(&m_seq->arg_str, &len);
-                return std::u32string_view(buf, len);
-        }
-        #endif
-
-        /*
-         * string:
-         *
-         * This is the string argument of a DCS or OSC sequence.
-         *
-         * Returns: the string argument
-         */
-        std::string string_utf8() const noexcept;
-
-        inline char* string_param() const noexcept
-        {
-                size_t len = 0;
-                auto buf = vte_seq_string_get(&m_seq->arg_str, &len);
-                return ucs4_to_utf8(buf, len);
+                return std::u32string_view{reinterpret_cast<char32_t*>(buf), len};
         }
 
         /* size:
@@ -1678,8 +1665,6 @@ public:
 private:
         vte_seq_t* m_seq{nullptr};
 
-        char const* type_string() const;
-        char const* command_string() const;
 }; // class Sequence
 
 

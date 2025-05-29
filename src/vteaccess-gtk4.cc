@@ -318,9 +318,9 @@ vte_accessible_text_contents_snapshot (VteAccessibleTextContents *contents,
                  * it's a new line and we need to keep track of where
                  * it is. */
                 if ((i == 0) || (attrs->row != row)) {
-                        _vte_debug_print (VTE_DEBUG_ALLY,
-                                          "Row %d/%ld begins at %d.\n",
-                                          int(char_positions_get_size (&contents->linebreaks)),
+                        _vte_debug_print (vte::debug::category::ALLY,
+                                          "Row {}/{} begins at {}",
+                                          int(char_positions_get_size(&contents->linebreaks)),
                                           attrs->row, i);
                         char_positions_append (&contents->linebreaks, &i);
                 }
@@ -334,7 +334,9 @@ vte_accessible_text_contents_snapshot (VteAccessibleTextContents *contents,
         /* Update the caret position. */
         long ccol, crow;
         vte_terminal_get_cursor_position (terminal, &ccol, &crow);
-        _vte_debug_print (VTE_DEBUG_ALLY, "Cursor at (%ld, " "%ld).\n", ccol, crow);
+        _vte_debug_print (vte::debug::category::ALLY,
+                          "Cursor at ({}, {})",
+                          ccol, crow);
         gsize caret = vte_accessible_text_contents_find_caret (contents, ccol, crow);
 
         contents->n_bytes = gstr->len;
@@ -344,9 +346,9 @@ vte_accessible_text_contents_snapshot (VteAccessibleTextContents *contents,
         contents->cached_caret_column = ccol;
         contents->cached_caret_row = crow;
 
-        _vte_debug_print (VTE_DEBUG_ALLY,
+        _vte_debug_print (vte::debug::category::ALLY,
                           "Refreshed accessibility snapshot, "
-                          "%ld cells, %ld characters.\n",
+                          "{} cells, {} characters",
                           long(vte_char_attr_list_get_size(&contents->attrs)),
                           long(char_positions_get_size (&contents->characters)));
 }
@@ -448,6 +450,8 @@ vte_accessible_text_get_contents_at (GtkAccessibleText            *accessible,
         contents = &state->contents[state->contents_flip];
 
         if (contents->string == nullptr) {
+                *start = 0;
+                *end = 0;
                 return nullptr;
         }
 
@@ -477,8 +481,8 @@ vte_accessible_text_get_contents_at (GtkAccessibleText            *accessible,
                         }
                 }
 
-                _vte_debug_print (VTE_DEBUG_ALLY,
-                                  "Character %u is on line %u.\n",
+                _vte_debug_print (vte::debug::category::ALLY,
+                                  "Character {} is on line {}",
                                   offset, line);
 
                 *start = *char_positions_index (&contents->linebreaks, line);
@@ -493,20 +497,29 @@ vte_accessible_text_get_contents_at (GtkAccessibleText            *accessible,
         case GTK_ACCESSIBLE_TEXT_GRANULARITY_WORD: {
                 gunichar ch = vte_accessible_text_contents_get_char_at (contents, offset);
 
-                if (ch == 0 || !impl->is_word_char (ch))
+                if (ch == 0)
                         break;
-
+                if (!impl->is_word_char (ch)) {
+                        /* Find the end of the previous word, updating the offset to this positio n*/
+                        while (offset >= 0 &&
+                               (ch = vte_accessible_text_contents_get_char_at (contents, offset)) &&
+                               !impl->is_word_char (ch)) {
+                                offset--;
+                        }
+                }
                 *start = offset;
                 *end = offset;
 
-                while (*start > 0 &&
-                       (ch = vte_accessible_text_contents_get_char_at (contents, *start - 1)) &&
+                while (*start >= 0 &&
+                       (ch = vte_accessible_text_contents_get_char_at (contents, *start)) &&
                        impl->is_word_char (ch)) {
                         (*start)--;
                 }
+                /* Now, *start points one char before the real word start offset, so adjust it */
+                (*start)++;
 
                 while (*end < contents->n_chars &&
-                       (ch = vte_accessible_text_contents_get_char_at (contents, *end + 1)) &&
+                       (ch = vte_accessible_text_contents_get_char_at (contents, *end)) &&
                        impl->is_word_char (ch)) {
                         (*end)++;
                 }
@@ -520,6 +533,8 @@ vte_accessible_text_get_contents_at (GtkAccessibleText            *accessible,
                 break;
         }
 
+        *start = 0;
+        *end = 0;
         return nullptr;
 }
 
@@ -913,7 +928,9 @@ vte_accessible_text_cursor_moved (VteTerminal       *terminal,
                 return;
         }
 
-        _vte_debug_print (VTE_DEBUG_ALLY, "Cursor at (%ld, " "%ld).\n", ccol, crow);
+        _vte_debug_print (vte::debug::category::ALLY,
+                          "Cursor at ({}, {})",
+                          ccol, crow);
 
         contents->cached_caret_column = ccol;
         contents->cached_caret_row = crow;

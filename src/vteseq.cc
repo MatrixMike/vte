@@ -33,13 +33,18 @@
 #include "vteinternal.hh"
 #include "vtegtk.hh"
 #include "caps.hh"
-#include "debug.h"
+#include "debug.hh"
 #include "sgr.hh"
 
 #define BEL_C0 "\007"
 #define ST_C0 _VTE_CAP_ST
 
 #include <algorithm>
+#include <string>
+#include <string_view>
+#include <version>
+
+#include <simdutf.h>
 
 using namespace std::literals;
 
@@ -70,131 +75,6 @@ inline consteval int firmware_version() noexcept
         return (VTE_MAJOR_VERSION * 100 + VTE_MINOR_VERSION) * 100 + VTE_MICRO_VERSION;
 }
 
-void
-vte::parser::Sequence::print() const noexcept
-{
-#if VTE_DEBUG
-        auto c = m_seq != nullptr ? terminator() : 0;
-        char c_buf[7];
-        g_snprintf(c_buf, sizeof(c_buf), "%lc", c);
-        g_printerr("%s:%s [%s]", type_string(), command_string(),
-                   g_unichar_isprint(c) ? c_buf : _vte_debug_sequence_to_string(c_buf, -1));
-        if (m_seq != nullptr && m_seq->n_args > 0) {
-                g_printerr("[ ");
-                for (unsigned int i = 0; i < m_seq->n_args; i++) {
-                        if (i > 0)
-                                g_print(", ");
-                        g_printerr("%d", vte_seq_arg_value(m_seq->args[i]));
-                }
-                g_printerr(" ]");
-        }
-        if (m_seq->type == VTE_SEQ_OSC || m_seq->type == VTE_SEQ_DCS) {
-                char* str = string_param();
-                g_printerr(" \"%s\"", str);
-                g_free(str);
-        }
-        g_printerr("\n");
-#endif
-}
-
-char const*
-vte::parser::Sequence::type_string() const
-{
-        if (G_UNLIKELY(m_seq == nullptr))
-                return "(nil)";
-
-        switch (type()) {
-        case VTE_SEQ_NONE:    return "NONE";
-        case VTE_SEQ_IGNORE:  return "IGNORE";
-        case VTE_SEQ_GRAPHIC: return "GRAPHIC";
-        case VTE_SEQ_CONTROL: return "CONTROL";
-        case VTE_SEQ_ESCAPE:  return "ESCAPE";
-        case VTE_SEQ_CSI:     return "CSI";
-        case VTE_SEQ_DCS:     return "DCS";
-        case VTE_SEQ_OSC:     return "OSC";
-        case VTE_SEQ_SCI:     return "SCI";
-        case VTE_SEQ_APC:     return "APC";
-        case VTE_SEQ_PM:      return "PM";
-        case VTE_SEQ_SOS:     return "SOS";
-        default:
-                g_assert(false);
-                return nullptr;
-        }
-}
-
-char const*
-vte::parser::Sequence::command_string() const
-{
-        if (G_UNLIKELY(m_seq == nullptr))
-                return "(nil)";
-
-        switch (command()) {
-#define _VTE_CMD(cmd) case VTE_CMD_##cmd: return #cmd;
-#define _VTE_NOP(cmd)
-#include "parser-cmd.hh"
-#undef _VTE_CMD
-#undef _VTE_NOP
-        default:
-                static char buf[32];
-                snprintf(buf, sizeof(buf), "NOP OR UNKOWN(%u)", command());
-                return buf;
-        }
-}
-
-// FIXMEchpe optimise this
-std::string
-vte::parser::Sequence::string_utf8() const noexcept
-{
-        std::string str;
-
-        size_t len;
-        auto buf = vte_seq_string_get(&m_seq->arg_str, &len);
-
-        char u[6];
-        for (size_t i = 0; i < len; ++i) {
-                auto ulen = g_unichar_to_utf8(buf[i], u);
-                str.append((char const*)u, ulen);
-        }
-
-        return str;
-}
-
-/* A couple are duplicated from vte.c, to keep them static... */
-
-/* Check how long a string of unichars is.  Slow version. */
-static gsize
-vte_unichar_strlen(gunichar const* c)
-{
-	gsize i;
-	for (i = 0; c[i] != 0; i++) ;
-	return i;
-}
-
-/* Convert a wide character string to a multibyte string */
-/* Simplified from glib's g_ucs4_to_utf8() to simply allocate the maximum
- * length instead of walking the input twice.
- */
-char*
-vte::parser::Sequence::ucs4_to_utf8(gunichar const* str,
-                                    ssize_t len) const noexcept
-{
-        if (len < 0)
-                len = vte_unichar_strlen(str);
-        auto outlen = (len * VTE_UTF8_BPC) + 1;
-
-        auto result = (char*)g_try_malloc(outlen);
-        if (result == nullptr)
-                return nullptr;
-
-        auto end = str + len;
-        auto p = result;
-        for (auto i = str; i < end; i++)
-                p += g_unichar_to_utf8(*i, p);
-        *p = '\0';
-
-        return result;
-}
-
 namespace vte {
 namespace terminal {
 
@@ -205,7 +85,7 @@ using namespace vte::osc_colors;
 void
 Terminal::emit_bell()
 {
-        _vte_debug_print(VTE_DEBUG_SIGNALS, "Emitting `bell'.\n");
+        _vte_debug_print(vte::debug::category::SIGNALS, "Emitting `bell'");
         g_signal_emit(m_terminal, signals[SIGNAL_BELL], 0);
 }
 
@@ -222,7 +102,8 @@ Terminal::emit_resize_window(guint columns,
             rows > 511)
                 return;
 
-        _vte_debug_print(VTE_DEBUG_SIGNALS, "Emitting `resize-window' %d columns %d rows.\n",
+        _vte_debug_print(vte::debug::category::SIGNALS,
+                         "Emitting `resize-window' {} columns {} rows",
                          columns, rows);
         g_signal_emit(m_terminal, signals[SIGNAL_RESIZE_WINDOW], 0, columns, rows);
 }
@@ -407,8 +288,8 @@ Terminal::set_mode_ecma(vte::parser::Sequence const& seq,
                 auto const param = seq.collect1(i);
                 auto const mode = m_modes_ecma.mode_from_param(param);
 
-                _vte_debug_print(VTE_DEBUG_MODES,
-                                 "Mode %d (%s) %s\n",
+                _vte_debug_print(vte::debug::category::MODES,
+                                 "Mode {} ({}) {}",
                                  param, m_modes_ecma.mode_to_cstring(mode),
                                  set ? "set" : "reset");
 
@@ -418,8 +299,8 @@ Terminal::set_mode_ecma(vte::parser::Sequence const& seq,
                 m_modes_ecma.set(mode, set);
 
                 if (mode == m_modes_ecma.eBDSM) {
-                        _vte_debug_print(VTE_DEBUG_BIDI,
-                                         "BiDi %s mode\n",
+                        _vte_debug_print(vte::debug::category::BIDI,
+                                         "BiDi {} mode",
                                          set ? "implicit" : "explicit");
                         maybe_apply_bidi_attributes(VTE_BIDI_FLAG_IMPLICIT);
                 }
@@ -448,8 +329,9 @@ Terminal::update_mouse_protocol() noexcept
         /* Mouse pointer might change */
         apply_mouse_cursor();
 
-        _vte_debug_print(VTE_DEBUG_MODES,
-                         "Mouse protocol is now %d\n", (int)m_mouse_tracking_mode);
+        _vte_debug_print(vte::debug::category::MODES,
+                         "Mouse protocol is now {}",
+                         int(m_mouse_tracking_mode));
 }
 
 void
@@ -558,16 +440,14 @@ Terminal::set_mode_private(int mode,
                 break;
 
         case vte::terminal::modes::Private::eVTE_BIDI_BOX_MIRROR:
-                _vte_debug_print(VTE_DEBUG_BIDI,
-                                 "BiDi box drawing mirroring %s\n",
-                                 set ? "enabled" : "disabled");
+                _vte_debug_print(vte::debug::category::BIDI,
+                                 "BiDi box drawing mirroring: {}", set);
                 maybe_apply_bidi_attributes(VTE_BIDI_FLAG_BOX_MIRROR);
                 break;
 
         case vte::terminal::modes::Private::eVTE_BIDI_AUTO:
-                        _vte_debug_print(VTE_DEBUG_BIDI,
-                                         "BiDi dir autodetection %s\n",
-                                         set ? "enabled" : "disabled");
+                        _vte_debug_print(vte::debug::category::BIDI,
+                                         "BiDi dir autodetection: {}", set);
                 maybe_apply_bidi_attributes(VTE_BIDI_FLAG_AUTO);
                 break;
 
@@ -585,8 +465,8 @@ Terminal::set_mode_private(vte::parser::Sequence const& seq,
                 auto const param = seq.collect1(i);
                 auto const mode = m_modes_private.mode_from_param(param);
 
-                _vte_debug_print(VTE_DEBUG_MODES,
-                                 "Private mode %d (%s) %s\n",
+                _vte_debug_print(vte::debug::category::MODES,
+                                 "Private mode {} ({}) {}",
                                  param, m_modes_private.mode_to_cstring(mode),
                                  set ? "set" : "reset");
 
@@ -607,15 +487,15 @@ Terminal::save_mode_private(vte::parser::Sequence const& seq,
                 auto const mode = m_modes_private.mode_from_param(param);
 
                 if (mode < 0) {
-                        _vte_debug_print(VTE_DEBUG_MODES,
-                                         "Saving private mode %d (%s)\n",
+                        _vte_debug_print(vte::debug::category::MODES,
+                                         "Saving private mode {} ({})",
                                          param, m_modes_private.mode_to_cstring(mode));
                         continue;
                 }
 
                 if (save) {
-                        _vte_debug_print(VTE_DEBUG_MODES,
-                                         "Saving private mode %d (%s) is %s\n",
+                        _vte_debug_print(vte::debug::category::MODES,
+                                         "Saving private mode {} ({}) is {}",
                                          param, m_modes_private.mode_to_cstring(mode),
                                          m_modes_private.get(mode) ? "set" : "reset");
 
@@ -623,8 +503,8 @@ Terminal::save_mode_private(vte::parser::Sequence const& seq,
                 } else {
                         bool const set = m_modes_private.pop_saved(mode);
 
-                        _vte_debug_print(VTE_DEBUG_MODES,
-                                         "Restoring private mode %d (%s) to %s\n",
+                        _vte_debug_print(vte::debug::category::MODES,
+                                         "Restoring private mode {} ({}) to {}",
                                          param, m_modes_private.mode_to_cstring(mode),
                                          set ? "set" : "reset");
 
@@ -905,8 +785,8 @@ Terminal::clear_to_eol()
 void
 Terminal::set_cursor_column(vte::grid::column_t col)
 {
-	_vte_debug_print(VTE_DEBUG_PARSER,
-                         "Moving cursor to column %ld.\n", col);
+	_vte_debug_print(vte::debug::category::PARSER,
+                         "Moving cursor to column {}", col);
 
         vte::grid::column_t left_col, right_col;
         if (m_modes_private.DEC_ORIGIN()) {
@@ -940,8 +820,8 @@ Terminal::set_cursor_column1(vte::grid::column_t col)
 void
 Terminal::set_cursor_row(vte::grid::row_t row)
 {
-        _vte_debug_print(VTE_DEBUG_PARSER,
-                         "Moving cursor to row %ld.\n", row);
+        _vte_debug_print(vte::debug::category::PARSER,
+                         "Moving cursor to row {}", row);
 
         vte::grid::row_t top_row, bottom_row;
         if (m_modes_private.DEC_ORIGIN()) {
@@ -1888,7 +1768,8 @@ Terminal::set_current_hyperlink(vte::parser::Sequence const& seq,
                         continue;
 
                 if (len > 3 + VTE_HYPERLINK_ID_LENGTH_MAX) {
-                        _vte_debug_print (VTE_DEBUG_HYPERLINK, "Overlong \"id\" ignored: \"%s\"\n",
+                        _vte_debug_print (vte::debug::category::HYPERLINK,
+                                          "Overlong \"id\" ignored: \"{}\"",
                                           subtoken.data());
                         break;
                 }
@@ -1904,7 +1785,9 @@ Terminal::set_current_hyperlink(vte::parser::Sequence const& seq,
                 char idbuf[24];
                 auto len = g_snprintf(idbuf, sizeof(idbuf), ":%ld", m_hyperlink_auto_id++);
                 hyperlink.append(idbuf, len);
-                _vte_debug_print (VTE_DEBUG_HYPERLINK, "Autogenerated id=\"%s\"\n", hyperlink.data());
+                _vte_debug_print (vte::debug::category::HYPERLINK,
+                                  "Autogenerated id=\"{}\"",
+                                  hyperlink.data());
         }
 
         /* Now get the URI */
@@ -1917,12 +1800,16 @@ Terminal::set_current_hyperlink(vte::parser::Sequence const& seq,
         if (len > 0 && len <= VTE_HYPERLINK_URI_LENGTH_MAX) {
                 token.append_remaining(hyperlink);
 
-                _vte_debug_print (VTE_DEBUG_HYPERLINK, "OSC 8: id;uri=\"%s\"\n", hyperlink.data());
+                _vte_debug_print (vte::debug::category::HYPERLINK,
+                                  "OSC 8: id;uri=\"{}\""
+                                  , hyperlink.data());
 
                 idx = m_screen->row_data->get_hyperlink_idx(hyperlink.data());
         } else {
                 if (G_UNLIKELY(len > VTE_HYPERLINK_URI_LENGTH_MAX))
-                        _vte_debug_print (VTE_DEBUG_HYPERLINK, "Overlong URI ignored (len %" G_GSIZE_FORMAT ")\n", len);
+                        _vte_debug_print (vte::debug::category::HYPERLINK,
+                                          "URI length {} is overlong, ignoring",
+                                          len);
 
                 /* idx = 0; also remove the previous current_idx so that it can be GC'd now. */
                 idx = m_screen->row_data->get_hyperlink_idx(nullptr);
@@ -4639,8 +4526,8 @@ Terminal::DECRQM_ECMA(vte::parser::Sequence const& seq)
         default: assert(mode >= 0); value = m_modes_ecma.get(mode) ? 1 : 2; break;
         }
 
-        _vte_debug_print(VTE_DEBUG_MODES,
-                         "Reporting mode %d (%s) is %d\n",
+        _vte_debug_print(vte::debug::category::MODES,
+                         "Reporting mode {} ({}) is {}",
                          param, m_modes_ecma.mode_to_cstring(mode),
                          value);
 
@@ -4668,8 +4555,8 @@ Terminal::DECRQM_DEC(vte::parser::Sequence const& seq)
         default: assert(mode >= 0); value = m_modes_private.get(mode) ? 1 : 2; break;
         }
 
-        _vte_debug_print(VTE_DEBUG_MODES,
-                         "Reporting private mode %d (%s) is %d\n",
+        _vte_debug_print(vte::debug::category::MODES,
+                         "Reporting private mode {} ({}) is {}",
                          param, m_modes_private.mode_to_cstring(mode),
                          value);
 
@@ -7716,6 +7603,7 @@ Terminal::NUL(vte::parser::Sequence const& seq)
 
 void
 Terminal::OSC(vte::parser::Sequence const& seq)
+try
 {
         /*
          * OSC - operating system command
@@ -7731,17 +7619,32 @@ Terminal::OSC(vte::parser::Sequence const& seq)
          * First, extract the number.
          */
 
-        auto str = seq.string_utf8();
+        auto const u32str = seq.string();
+
+        auto str = std::string{};
+#if defined(__cpp_lib_string_resize_and_overwrite) && __cpp_lib_string_resize_and_overwrite >= 202110l
+        str.resize_and_overwrite
+                (simdutf::utf8_length_from_utf32(u32str),
+                 [&](char* data,
+                     size_t data_size) constexpr noexcept -> size_t {
+                         return simdutf::convert_utf32_to_utf8
+                                 (u32str, std::span<char>(data, data_size));
+                 });
+#else
+        str.resize(simdutf::utf8_length_from_utf32(u32str) + 1);
+        str.resize(simdutf::convert_utf32_to_utf8(u32str, std::span<char>(str.data(), str.size())));
+#endif // C++23
+
         vte::parser::StringTokeniser tokeniser{str, ';'};
         auto it = tokeniser.cbegin();
-        int osc;
-        if (!it.number(osc))
+        auto const osc = it.number();
+        if (!osc)
                 return;
 
         auto const cend = tokeniser.cend();
         ++it; /* could now be cend */
 
-        switch (osc) {
+        switch (*osc) {
         case VTE_OSC_VTECWF:
                 set_termprop_uri(seq, it, cend,
                                  VTE_PROPERTY_ID_CURRENT_FILE_URI,
@@ -7793,31 +7696,31 @@ Terminal::OSC(vte::parser::Sequence const& seq)
         }
 
         case VTE_OSC_XTERM_SET_COLOR:
-                set_color(seq, it, cend, OSCValuedColorSequenceKind::XTermColor, osc);
+                set_color(seq, it, cend, OSCValuedColorSequenceKind::XTermColor, *osc);
                 break;
 
         case VTE_OSC_XTERM_SET_COLOR_SPECIAL:
-                set_color(seq, it, cend, OSCValuedColorSequenceKind::XTermSpecialColor, osc);
+                set_color(seq, it, cend, OSCValuedColorSequenceKind::XTermSpecialColor, *osc);
                 break;
 
         case VTE_OSC_XTERM_SET_COLOR_TEXT_FG:
-                set_special_color(seq, it, cend, ColorPaletteIndex::default_fg(), osc);
+                set_special_color(seq, it, cend, ColorPaletteIndex::default_fg(), *osc);
                 break;
 
         case VTE_OSC_XTERM_SET_COLOR_TEXT_BG:
-                set_special_color(seq, it, cend, ColorPaletteIndex::default_bg(), osc);
+                set_special_color(seq, it, cend, ColorPaletteIndex::default_bg(), *osc);
                 break;
 
         case VTE_OSC_XTERM_SET_COLOR_CURSOR_BG:
-                set_special_color(seq, it, cend, ColorPaletteIndex::cursor_bg(), osc);
+                set_special_color(seq, it, cend, ColorPaletteIndex::cursor_bg(), *osc);
                 break;
 
         case VTE_OSC_XTERM_SET_COLOR_HIGHLIGHT_BG:
-                set_special_color(seq, it, cend, ColorPaletteIndex::highlight_bg(), osc);
+                set_special_color(seq, it, cend, ColorPaletteIndex::highlight_bg(), *osc);
                 break;
 
         case VTE_OSC_XTERM_SET_COLOR_HIGHLIGHT_FG:
-                set_special_color(seq, it, cend, ColorPaletteIndex::highlight_fg(), osc);
+                set_special_color(seq, it, cend, ColorPaletteIndex::highlight_fg(), *osc);
                 break;
 
         case VTE_OSC_XTERM_RESET_COLOR:
@@ -7833,7 +7736,7 @@ Terminal::OSC(vte::parser::Sequence const& seq)
                 break;
 
         case VTE_OSC_XTERM_RESET_COLOR_TEXT_BG:
-                reset_color(ColorPaletteIndex::cursor_fg(), ColorSource::Escape);
+                reset_color(ColorPaletteIndex::default_bg(), ColorSource::Escape);
                 break;
 
         case VTE_OSC_XTERM_RESET_COLOR_CURSOR_BG:
@@ -7903,6 +7806,10 @@ Terminal::OSC(vte::parser::Sequence const& seq)
         default:
                 break;
         }
+}
+catch (...)
+{
+        vte::log_exception();
 }
 
 void
@@ -8352,15 +8259,15 @@ Terminal::SCP(vte::parser::Sequence const& seq)
         case 0:
                 /* FIXME switch to the emulator's default, once we have that concept */
                 m_bidi_rtl = FALSE;
-                _vte_debug_print(VTE_DEBUG_BIDI, "BiDi: default direction restored\n");
+                _vte_debug_print(vte::debug::category::BIDI, "BiDi: default direction restored");
                 break;
         case 1:
                 m_bidi_rtl = FALSE;
-                _vte_debug_print(VTE_DEBUG_BIDI, "BiDi: switch to LTR\n");
+                _vte_debug_print(vte::debug::category::BIDI, "BiDi: switch to LTR");
                 break;
         case 2:
                 m_bidi_rtl = TRUE;
-                _vte_debug_print(VTE_DEBUG_BIDI, "BiDi: switch to RTL\n");
+                _vte_debug_print(vte::debug::category::BIDI, "BiDi: switch to RTL");
                 break;
         default:
                 return;
@@ -8759,11 +8666,11 @@ Terminal::SPD(vte::parser::Sequence const& seq)
         case -1:
         case 0:
                 m_bidi_rtl = FALSE;
-                _vte_debug_print(VTE_DEBUG_BIDI, "BiDi: switch to LTR\n");
+                _vte_debug_print(vte::debug::category::BIDI, "BiDi: switch to LTR");
                 break;
         case 3:
                 m_bidi_rtl = TRUE;
-                _vte_debug_print(VTE_DEBUG_BIDI, "BiDi: switch to RTL\n");
+                _vte_debug_print(vte::debug::category::BIDI, "BiDi: switch to RTL");
                 break;
         default:
                 return;

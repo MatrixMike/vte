@@ -47,123 +47,6 @@ using namespace vte::parser;
 Parser parser{};
 Sequence seq{parser};
 
-#if 0
-static char const*
-seq_to_str(unsigned int type)
-{
-        switch (type) {
-        case VTE_SEQ_NONE: return "NONE";
-        case VTE_SEQ_IGNORE: return "IGNORE";
-        case VTE_SEQ_GRAPHIC: return "GRAPHIC";
-        case VTE_SEQ_CONTROL: return "CONTROL";
-        case VTE_SEQ_ESCAPE: return "ESCAPE";
-        case VTE_SEQ_CSI: return "CSI";
-        case VTE_SEQ_DCS: return "DCS";
-        case VTE_SEQ_OSC: return "OSC";
-        case VTE_SEQ_APC: return "APC";
-        case VTE_SEQ_PM: return "PM";
-        case VTE_SEQ_SOS: return "SOS";
-        case VTE_SEQ_SCI: return "SCI";
-        default:
-                g_assert_not_reached();
-        }
-}
-
-static char const*
-cmd_to_str(unsigned int command)
-{
-        switch (command) {
-#define _VTE_CMD(cmd) case VTE_CMD_##cmd: return #cmd;
-#include "parser-cmd.hh"
-#undef _VTE_CMD
-        default:
-                static char buf[32];
-                snprintf(buf, sizeof(buf), "UNKOWN(%u)", command);
-                return buf;
-        }
-}
-
-static char const*
-charset_to_str(unsigned int cs)
-{
-        switch (cs) {
-#define _VTE_CHARSET_PASTE(name) case VTE_CHARSET_##name: return #name;
-#define _VTE_CHARSET(name) _VTE_CHARSET_PASTE(name)
-#define _VTE_CHARSET_ALIAS_PASTE(name1,name2)
-#define _VTE_CHARSET_ALIAS(name1,name2)
-#include "parser-charset.hh"
-#undef _VTE_CHARSET_PASTE
-#undef _VTE_CHARSET
-#undef _VTE_CHARSET_ALIAS_PASTE
-#undef _VTE_CHARSET_ALIAS
-        default:
-                static char buf[32];
-                snprintf(buf, sizeof(buf), "UNKOWN(%u)", cs);
-                return buf;
-        }
-}
-#endif
-
-static const char c0str[][6] = {
-        "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL",
-        "BS", "HT", "LF", "VT", "FF", "CR", "SO", "SI",
-        "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB",
-        "CAN", "EM", "SUB", "ESC", "FS", "GS", "RS", "US",
-        "SPACE"
-};
-
-static const char c1str[][5] = {
-        "DEL",
-        "0x80", "0x81", "BPH", "NBH", "0x84", "NEL", "SSA", "ESA",
-        "HTS", "HTJ", "VTS", "PLD", "PLU", "RI", "SS2", "SS3",
-        "DCS", "PU1", "PU2", "STS", "CCH", "MW", "SPA", "EPA",
-        "SOS", "0x99", "SCI", "CSI", "ST", "OSC", "PM", "APC"
-};
-
-static void
-print_escaped(std::u32string const& s)
-{
-        for (auto it : s) {
-                uint32_t c = (char32_t)it;
-
-                if (c <= 0x20)
-                        g_print("%s ", c0str[c]);
-                else if (c < 0x7f)
-                        g_print("%c ", c);
-                else if (c < 0xa0)
-                        g_print("%s ", c1str[c - 0x7f]);
-                else
-                        g_print("U+%04X", c);
-        }
-        g_print("\n");
-}
-
-#if 0
-static void
-print_seq()
-{
-        auto c = seq.terminator();
-        if (seq.command() == VTE_CMD_GRAPHIC) {
-                char buf[7];
-                buf[g_unichar_to_utf8(c, buf)] = 0;
-                g_print("%s U+%04X [%s]\n", cmd_to_str(seq.command()),
-                        c,
-                        g_unichar_isprint(c) ? buf : "�");
-        } else {
-                g_print("%s", cmd_to_str(seq.command()));
-                if (seq.size()) {
-                        g_print(" ");
-                        for (unsigned int i = 0; i < seq.size(); i++) {
-                                if (i > 0)
-                                        g_print(";");
-                                g_print("%d", seq.param(i));
-                        }
-                }
-                g_print("\n");
-        }
-}
-#endif
-
 class vte_seq_builder : public u32SequenceBuilder {
 public:
         vte_seq_builder(unsigned int type,
@@ -192,13 +75,6 @@ public:
         {
                 for (unsigned int i = 0; i < n; ++i)
                         append_param(params[i]);
-        }
-
-        void print(bool c1 = false) const noexcept
-        {
-                std::u32string s;
-                to_string(s, c1);
-                print_escaped(s);
         }
 };
 
@@ -1542,18 +1418,30 @@ test_seq_glue_string(void)
         g_assert_true(seq.string() == str);
 }
 
+template<typename CharT>
 static void
 test_seq_glue_string_tokeniser(void)
 {
-        std::string str{"a;1b:17:test::b:;3;5;def;17 a;ghi;"s};
+        using string_type = std::basic_string<CharT>;
+        using tokeniser_type = StringTokeniserBase<CharT>;
+        using char_type = CharT;
 
-        StringTokeniser tokeniser{str, ';'};
+        auto L = [](char const* str) constexpr -> auto {
+                auto rv = string_type{};
+                for (auto i = size_t(0); str[i]; ++i)
+                        rv.push_back(char_type(str[i]));
+                return rv;
+        };
+
+        auto str = L("a;1b:17:test::b:;3;5;def;17 a;ghi;65535;65536;-1;");
+
+        auto tokeniser = tokeniser_type{str, ';'};
 
         auto start = tokeniser.cbegin();
         auto end = tokeniser.cend();
 
         auto pit = start;
-        for (auto it : {"a"s, "1b:17:test::b:"s, "3"s, "5"s, "def"s, "17 a"s, "ghi"s, ""s}) {
+        for (auto&& it : {L("a"), L("1b:17:test::b:"), L("3"), L("5"), L("def"), L("17 a"), L("ghi"), L("65535"), L("65536"), L("-1"), L("")}) {
                 g_assert_true(it == *pit);
 
                 /* Use std::find to see if the InputIterator implementation
@@ -1569,7 +1457,7 @@ test_seq_glue_string_tokeniser(void)
         auto len = str.size();
         size_t pos = 0;
         pit = start;
-        for (auto it : {1, 14, 1, 1, 3, 4, 3, 0}) {
+        for (auto it : {1, 14, 1, 1, 3, 4, 3, 5, 5, 2, 0}) {
                 g_assert_cmpuint(it, ==, pit.size());
                 g_assert_cmpuint(len, ==, pit.size_remaining());
 
@@ -1584,19 +1472,20 @@ test_seq_glue_string_tokeniser(void)
         g_assert_cmpuint(pos, ==, str.size() + 1);
 
         pit = start;
-        for (auto it : {-2, -2, 3, 5, -2, -2, -2, -1}) {
-                int num;
-                bool v = pit.number(num);
-                if (it == -2)
-                        g_assert_false(v);
-                else
-                        g_assert_cmpint(it, ==, num);
+        for (auto it : {-2, -2, 3, 5, -2, -2, -2, 65535, -2, -2, -1}) {
+                auto v = pit.number();
+                if (it == -2) {
+                        g_assert_false(bool(v));
+                } else {
+                        g_assert_true(bool(v));
+                        g_assert_cmpint(it, ==, *v);
+                }
 
                 ++pit;
         }
 
         /* Test range for */
-        for (auto it : tokeniser)
+        for ([[maybe_unused]] auto it : tokeniser)
                 ;
 
         /* Test different separator */
@@ -1604,10 +1493,10 @@ test_seq_glue_string_tokeniser(void)
         ++pit;
 
         auto substr = *pit;
-        StringTokeniser subtokeniser{substr, ':'};
+        auto subtokeniser = tokeniser_type{substr, ':'};
 
         auto subpit = subtokeniser.cbegin();
-        for (auto it : {"1b"s, "17"s, "test"s, ""s, "b"s, ""s}) {
+        for (auto&& it : {L("1b"), L("17"), L("test"), L(""), L("b"), L("")}) {
                 g_assert_true(it == *subpit);
 
                 ++subpit;
@@ -1615,36 +1504,36 @@ test_seq_glue_string_tokeniser(void)
         g_assert_true(subpit == subtokeniser.cend());
 
         /* Test another string, one that doesn't end with an empty token */
-        std::string str2{"abc;defghi"s};
-        StringTokeniser tokeniser2{str2, ';'};
+        auto str2 = L("abc;defghi");
+        auto tokeniser2 = tokeniser_type{str2, ';'};
 
         g_assert_cmpint(std::distance(tokeniser2.cbegin(), tokeniser2.cend()), ==, 2);
         auto pit2 = tokeniser2.cbegin();
-        g_assert_true(*pit2 == "abc"s);
+        g_assert_true(*pit2 == L("abc"));
         ++pit2;
-        g_assert_true(*pit2 == "defghi"s);
+        g_assert_true(*pit2 == L("defghi"));
         ++pit2;
         g_assert_true(pit2 == tokeniser2.cend());
 
         /* Test another string, one that starts with an empty token */
-        std::string str3{";abc"s};
-        StringTokeniser tokeniser3{str3, ';'};
+        auto str3 = L(";abc");
+        auto tokeniser3 = tokeniser_type{str3, ';'};
 
         g_assert_cmpint(std::distance(tokeniser3.cbegin(), tokeniser3.cend()), ==, 2);
         auto pit3 = tokeniser3.cbegin();
-        g_assert_true(*pit3 == ""s);
+        g_assert_true(*pit3 == L(""));
         ++pit3;
-        g_assert_true(*pit3 == "abc"s);
+        g_assert_true(*pit3 == L("abc"));
         ++pit3;
         g_assert_true(pit3 == tokeniser3.cend());
 
         /* And try an empty string, which should split into one empty token */
-        std::string str4{""s};
-        StringTokeniser tokeniser4{str4, ';'};
+        auto str4 = L("");
+        auto tokeniser4 = tokeniser_type{str4, ';'};
 
         g_assert_cmpint(std::distance(tokeniser4.cbegin(), tokeniser4.cend()), ==, 1);
         auto pit4 = tokeniser4.cbegin();
-        g_assert_true(*pit4 == ""s);
+        g_assert_true(*pit4 == L(""));
         ++pit4;
         g_assert_true(pit4 == tokeniser4.cend());
 }
@@ -1693,7 +1582,10 @@ main(int argc,
         g_test_add_func("/vte/parser/sequences/glue/bignum", test_seq_glue_bignum);
         g_test_add_func("/vte/parser/sequences/glue/uchar", test_seq_glue_uchar);
         g_test_add_func("/vte/parser/sequences/glue/string", test_seq_glue_string);
-        g_test_add_func("/vte/parser/sequences/glue/string-tokeniser", test_seq_glue_string_tokeniser);
+        g_test_add_func("/vte/parser/sequences/glue/string-tokeniser/char", test_seq_glue_string_tokeniser<char>);
+        // requires newest fast_float
+        // g_test_add_func("/vte/parser/sequences/glue/string-tokeniser/char8_t", test_seq_glue_string_tokeniser<char8_t>);
+        g_test_add_func("/vte/parser/sequences/glue/string-tokeniser/char32_t", test_seq_glue_string_tokeniser<char32_t>);
         g_test_add_func("/vte/parser/sequences/glue/sequence-builder", test_seq_glue_sequence_builder);
         g_test_add_func("/vte/parser/sequences/glue/reply-builder", test_seq_glue_reply_builder);
         g_test_add_func("/vte/parser/sequences/control", test_seq_control);

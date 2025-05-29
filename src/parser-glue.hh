@@ -24,6 +24,12 @@
 
 #include "parser.hh"
 
+#include "debug.hh"
+
+#include <fast_float/fast_float.h>
+
+#include <fmt/format.h>
+
 namespace vte {
 
 namespace parser {
@@ -188,7 +194,7 @@ public:
 
         inline void set_string(string_type&& str) noexcept
         {
-                m_arg_str = str;
+                m_arg_str = std::move(str);
         }
 
         enum class Introducer {
@@ -268,16 +274,14 @@ private:
                         if (m_param_intro != 0)
                                 s.push_back(m_param_intro);
                         auto n_args = m_seq.n_args;
-                        for (unsigned int n = 0; n < n_args; n++) {
+                        auto it = std::back_inserter(s);
+                        for (auto n = 0u; n < n_args; n++) {
                                 auto arg = vte_seq_arg_value(m_seq.args[n]);
                                 if (arg != -1) {
-                                        char buf[16];
-                                        int l = g_snprintf(buf, sizeof(buf), "%d", arg);
-                                        for (int j = 0; j < l; j++)
-                                                s.push_back(buf[j]);
+                                        fmt::format_to(it, "{}", arg);
                                 }
                                 if (n + 1 < n_args) {
-                                        s.push_back(vte_seq_arg_nonfinal(m_seq.args[n]) ? ':' : ';');
+                                        *it = vte_seq_arg_nonfinal(m_seq.args[n]) ? ':' : ';';
                                 }
                         }
                         break;
@@ -425,37 +429,41 @@ public:
 
 }; // class ReplyBuilder
 
-class StringTokeniser {
+template<typename CharT>
+class StringTokeniserBase {
 public:
-        using string_type = std::string;
-        using string_view_type = std::string_view;
-        using char_type = std::string::value_type;
+        using string_type = std::basic_string<CharT>;
+        using string_view_type = std::basic_string_view<CharT>;
+        using char_type = CharT;
+
+        // Can be string_type or string_view_type
+        using tokenstr_type = string_type;
 
 private:
-        string_type const& m_string;
+        tokenstr_type const& m_string;
         char_type m_separator{';'};
 
 public:
-        StringTokeniser(string_type& s,
-                        char_type separator = ';')
+        StringTokeniserBase(tokenstr_type const& s,
+                            char_type separator = ';')
                 : m_string{s},
                   m_separator{separator}
         {
         }
 
-        StringTokeniser(string_type&& s,
-                        char_type separator = ';')
-                : m_string{s},
+        StringTokeniserBase(tokenstr_type&& s,
+                            char_type separator = ';')
+                : m_string{std::move(s)},
                   m_separator{separator}
         {
         }
 
-        StringTokeniser(StringTokeniser const&) = delete;
-        StringTokeniser(StringTokeniser&&) = delete;
-        ~StringTokeniser() = default;
+        StringTokeniserBase(StringTokeniserBase const&) = delete;
+        StringTokeniserBase(StringTokeniserBase&&) = delete;
+        ~StringTokeniserBase() = default;
 
-        StringTokeniser& operator=(StringTokeniser const&) = delete;
-        StringTokeniser& operator=(StringTokeniser&&) = delete;
+        StringTokeniserBase& operator=(StringTokeniserBase const&) = delete;
+        StringTokeniserBase& operator=(StringTokeniserBase&&) = delete;
 
         /*
          * const_iterator:
@@ -465,20 +473,20 @@ public:
         class const_iterator {
         public:
                 using difference_type = ptrdiff_t;
-                using value_type = string_type;
-                using pointer = string_type;
-                using reference = string_type;
+                using value_type = tokenstr_type;
+                using pointer = tokenstr_type;
+                using reference = tokenstr_type;
                 using iterator_category = std::input_iterator_tag;
-                using size_type = string_type::size_type;
+                using size_type = string_view_type::size_type;
 
         private:
-                string_type const* m_string;
+                tokenstr_type const* m_string;
                 char_type m_separator{';'};
-                string_type::size_type m_position;
-                string_type::size_type m_next_separator;
+                string_view_type::size_type m_position;
+                string_view_type::size_type m_next_separator;
 
         public:
-                const_iterator(string_type const* str,
+                const_iterator(tokenstr_type const* str,
                                char_type separator,
                                size_type position)
                         : m_string{str},
@@ -488,7 +496,7 @@ public:
                 {
                 }
 
-                const_iterator(string_type const* str,
+                const_iterator(tokenstr_type const* str,
                                char_type separator)
                         : m_string{str},
                           m_separator{separator},
@@ -519,7 +527,7 @@ public:
 
                 const_iterator& operator=(const_iterator&& o)
                 {
-                        m_string = std::move(o.m_string);
+                        m_string = o.m_string;
                         m_separator = o.m_separator;
                         m_position = o.m_position;
                         m_next_separator = o.m_next_separator;
@@ -538,7 +546,7 @@ public:
 
                 inline const_iterator& operator++() noexcept
                 {
-                        if (m_next_separator != string_type::npos) {
+                        if (m_next_separator != string_view_type::npos) {
                                 m_position = ++m_next_separator;
                                 m_next_separator = m_string->find(m_separator, m_position);
                         } else
@@ -565,20 +573,17 @@ public:
                                 return true;
                         }
 
-                        v = 0;
-                        size_type i;
-                        for (i = 0; i < s; ++i) {
-                                char_type c = (*m_string)[m_position + i];
-                                if (c < '0' || c > '9')
-                                        return false;
-
-                                v = v * 10 + (c - '0');
-                                if (v > 0xffff)
-                                        return false;
+                        auto const str = string_view();
+                        auto value = uint16_t{0};
+                        if (auto [ptr, err] = fast_float::from_chars(std::begin(str),
+                                                                     std::end(str),
+                                                                     value);
+                            err == std::errc() && ptr == std::end(str)) {
+                                v = int(value);
+                                return true;
                         }
 
-                        /* All consumed? */
-                        return i == s;
+                        return false;
                 }
 
                 /*
@@ -600,7 +605,7 @@ public:
 
                 inline size_type size() const noexcept
                 {
-                        if (m_next_separator != string_type::npos)
+                        if (m_next_separator != string_view_type::npos)
                                 return m_next_separator - m_position;
                         else
                                 return m_string->size() - m_position;
@@ -611,9 +616,19 @@ public:
                         return m_string->size() - m_position;
                 }
 
-                inline string_type operator*() const noexcept
+                inline string_type string() const
                 {
                         return m_string->substr(m_position, size());
+                }
+
+                inline string_view_type string_view() const noexcept
+                {
+                        return string_view_type{*m_string}.substr(m_position, size());
+                }
+
+                inline string_type operator*() const
+                {
+                        return string();
                 }
 
                 /*
@@ -626,11 +641,6 @@ public:
                         return m_string->substr(m_position);
                 }
 
-                /*
-                 * string_remaining:
-                 *
-                 * Returns the whole string left, including possibly more separators.
-                 */
                 inline string_view_type string_view_remaining() const noexcept
                 {
                         return string_view_type{*m_string}.substr(m_position);
@@ -668,7 +678,9 @@ public:
                 return cend();
         }
 
-}; // class StringTokeniser
+}; // class StringTokeniserBase
+
+using StringTokeniser = StringTokeniserBase<char>;
 
 } // namespace parser
 
