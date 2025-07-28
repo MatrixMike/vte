@@ -1648,6 +1648,14 @@ public:
         bool set_cursor_style(CursorStyle style);
         bool set_delete_binding(EraseMode binding);
         auto delete_binding() const noexcept { return m_delete_binding; }
+        void map_erase_binding(EraseMode mode,
+                               EraseMode auto_mode,
+                               unsigned modifiers,
+                               char*& normal,
+                               size_t& normal_length,
+                               bool& suppress_alt_esc,
+                               bool& add_modifiers);
+
         bool set_enable_a11y(bool setting);
         bool set_enable_bidi(bool setting);
         bool set_enable_shaping(bool setting);
@@ -1753,31 +1761,11 @@ public:
                           vte::grid::row_t row);
 
         void send(vte::parser::u8SequenceBuilder const& builder,
-                  bool c1 = true,
+                  bool c1 = false,
                   vte::parser::u8SequenceBuilder::Introducer introducer = vte::parser::u8SequenceBuilder::Introducer::DEFAULT,
                   vte::parser::u8SequenceBuilder::ST st = vte::parser::u8SequenceBuilder::ST::DEFAULT) noexcept;
-        void send(vte::parser::Sequence const& seq,
-                  vte::parser::u8SequenceBuilder const& builder) noexcept;
-        void send(unsigned int type,
-                  std::initializer_list<int> params) noexcept;
         void reply(vte::parser::Sequence const& seq,
-                   unsigned int type,
-                   std::initializer_list<int> params) noexcept;
-        void reply(vte::parser::Sequence const& seq,
-                   unsigned int type,
-                   std::initializer_list<int> params,
-                   vte::parser::ReplyBuilder const& builder) noexcept;
-        #if 0
-        void reply(vte::parser::Sequence const& seq,
-                   unsigned int type,
-                   std::initializer_list<int> params,
-                   std::string const& str) noexcept;
-        #endif
-        void reply(vte::parser::Sequence const& seq,
-                   unsigned int type,
-                   std::initializer_list<int> params,
-                   char const* format,
-                   ...) noexcept G_GNUC_PRINTF(5, 6);
+                   vte::parser::u8SequenceBuilder const& builder) noexcept;
 
         /* OSC handler helpers */
         void set_color_index(vte::parser::Sequence const& seq,

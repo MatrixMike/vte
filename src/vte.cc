@@ -4895,9 +4895,9 @@ Terminal::feed_child_binary(std::string_view const& data)
 
 void
 Terminal::send(vte::parser::u8SequenceBuilder const& builder,
-                         bool c1,
-                         vte::parser::u8SequenceBuilder::Introducer introducer,
-                         vte::parser::u8SequenceBuilder::ST st) noexcept
+               bool c1,
+               vte::parser::u8SequenceBuilder::Introducer introducer,
+               vte::parser::u8SequenceBuilder::ST st) noexcept
 {
         std::string str;
         builder.to_string(str, c1, -1, introducer, st);
@@ -4905,8 +4905,8 @@ Terminal::send(vte::parser::u8SequenceBuilder const& builder,
 }
 
 void
-Terminal::send(vte::parser::Sequence const& seq,
-               vte::parser::u8SequenceBuilder const& builder) noexcept
+Terminal::reply(vte::parser::Sequence const& seq,
+                vte::parser::u8SequenceBuilder const& builder) noexcept
 {
         // FIXMEchpe always take c1 & ST from @seq?
         if (seq.type() == VTE_SEQ_OSC &&
@@ -4922,72 +4922,6 @@ Terminal::send(vte::parser::Sequence const& seq,
         } else {
                 send(builder, false);
         }
-}
-
-void
-Terminal::send(unsigned int type,
-                         std::initializer_list<int> params) noexcept
-{
-        // FIXMEchpe take c1 & ST from @seq
-        send(vte::parser::ReplyBuilder{type, params}, false);
-}
-
-void
-Terminal::reply(vte::parser::Sequence const& seq,
-                          unsigned int type,
-                          std::initializer_list<int> params) noexcept
-{
-        send(seq, vte::parser::ReplyBuilder{type, params});
-}
-
-#if 0
-void
-Terminal::reply(vte::parser::Sequence const& seq,
-                          unsigned int type,
-                          std::initializer_list<int> params,
-                          std::string const& str) noexcept
-{
-        vte::parser::ReplyBuilder reply_builder{type, params};
-        reply_builder.set_string(str);
-        send(seq, reply_builder);
-}
-#endif
-
-void
-Terminal::reply(vte::parser::Sequence const& seq,
-                          unsigned int type,
-                          std::initializer_list<int> params,
-                          vte::parser::ReplyBuilder const& builder) noexcept
-{
-        std::string str;
-        builder.to_string(str, true, -1,
-                          vte::parser::ReplyBuilder::Introducer::NONE,
-                          vte::parser::ReplyBuilder::ST::NONE);
-
-        vte::parser::ReplyBuilder reply_builder{type, params};
-        reply_builder.set_string(std::move(str));
-        send(seq, reply_builder);
-}
-
-void
-Terminal::reply(vte::parser::Sequence const& seq,
-                          unsigned int type,
-                          std::initializer_list<int> params,
-                          char const* format,
-                          ...) noexcept
-{
-        char buf[8192];
-        va_list vargs;
-
-        va_start(vargs, format);
-        G_GNUC_UNUSED auto len = g_vsnprintf(buf, sizeof(buf), format, vargs);
-        va_end(vargs);
-        vte_assert_cmpint(len, <, sizeof(buf));
-
-        vte::parser::ReplyBuilder builder{type, params};
-        builder.set_string(std::string{buf});
-
-        send(seq, builder);
 }
 
 void
@@ -5146,15 +5080,76 @@ Terminal::beep()
                 m_real_widget->beep();
 }
 
+void
+Terminal::map_erase_binding(EraseMode mode,
+                            EraseMode auto_mode,
+                            unsigned modifiers,
+                            char*& normal,
+                            size_t& normal_length,
+                            bool& suppress_alt_esc,
+                            bool& add_modifiers)
+{
+        switch (mode) {
+                using enum EraseMode;
+        case eASCII_BACKSPACE:
+                normal = g_strdup("\010");
+                normal_length = 1;
+                suppress_alt_esc = false;
+                break;
+        case eASCII_DELETE:
+                normal = g_strdup("\177");
+                normal_length = 1;
+                suppress_alt_esc = false;
+                break;
+        case eDELETE_SEQUENCE:
+                normal = g_strdup("\e[3~");
+                normal_length = 4;
+                add_modifiers = true;
+                /* FIXMEchpe: why? this overrides the FALSE set above? */
+                suppress_alt_esc = true;
+                break;
+        case EraseMode::eTTY: {
+                struct termios tio;
+                if (pty() &&
+                    tcgetattr(pty()->fd(), &tio) != -1) {
+                        normal = g_strdup_printf("%c", tio.c_cc[VERASE]);
+                        normal_length = 1;
+                }
+                suppress_alt_esc = false;
+                break;
+        }
+        case eAUTO:
+                assert(auto_mode != eAUTO);
+                map_erase_binding(auto_mode,
+                                  auto_mode,
+                                  modifiers,
+                                  normal, normal_length,
+                                  suppress_alt_esc,
+                                  add_modifiers);
+                break;
+        default:
+                __builtin_unreachable();
+                break;
+        }
+
+        /* Toggle ^H vs ^? if Ctrl is pressed */
+        if (normal_length == 1 &&
+            (modifiers & GDK_CONTROL_MASK)) {
+                if (normal[0] == '\010')
+                        normal[0] = '\177';
+                else if (normal[0] == '\177')
+                        normal[0] = '\010';
+        }
+}
+
 bool
 Terminal::widget_key_press(vte::platform::KeyEvent const& event)
 {
         auto handled = false;
 	char *normal = NULL;
 	gsize normal_length = 0;
-	struct termios tio;
-	gboolean scrolled = FALSE, steal = FALSE, modifier = FALSE,
-		 suppress_alt_esc = FALSE, add_modifiers = FALSE;
+	gboolean scrolled = FALSE, steal = FALSE, modifier = FALSE;
+        auto suppress_alt_esc = false, add_modifiers = false;
 	guint keyval = 0;
 	gunichar keychar = 0;
 	char keybuf[VTE_UTF8_BPC];
@@ -5291,93 +5286,25 @@ Terminal::widget_key_press(vte::platform::KeyEvent const& event)
 		/* Map the key to a sequence name if we can. */
 		switch (event.keyval()) {
 		case GDK_KEY_BackSpace:
-			switch (m_backspace_binding) {
-			case EraseMode::eASCII_BACKSPACE:
-				normal = g_strdup("");
-				normal_length = 1;
-				suppress_alt_esc = FALSE;
-				break;
-			case EraseMode::eASCII_DELETE:
-				normal = g_strdup("");
-				normal_length = 1;
-				suppress_alt_esc = FALSE;
-				break;
-			case EraseMode::eDELETE_SEQUENCE:
-                                normal = g_strdup("\e[3~");
-                                normal_length = 4;
-                                add_modifiers = TRUE;
-				suppress_alt_esc = TRUE;
-				break;
-			case EraseMode::eTTY:
-				if (pty() &&
-				    tcgetattr(pty()->fd(), &tio) != -1)
-				{
-					normal = g_strdup_printf("%c", tio.c_cc[VERASE]);
-					normal_length = 1;
-				}
-				suppress_alt_esc = FALSE;
-				break;
-			case EraseMode::eAUTO:
-			default:
-#ifndef _POSIX_VDISABLE
-#define _POSIX_VDISABLE '\0'
-#endif
-				if (pty() &&
-				    tcgetattr(pty()->fd(), &tio) != -1 &&
-				    tio.c_cc[VERASE] != _POSIX_VDISABLE)
-				{
-					normal = g_strdup_printf("%c", tio.c_cc[VERASE]);
-					normal_length = 1;
-				}
-				else
-				{
-					normal = g_strdup("");
-					normal_length = 1;
-					suppress_alt_esc = FALSE;
-				}
-				suppress_alt_esc = FALSE;
-				break;
-			}
-                        /* Toggle ^H vs ^? if Ctrl is pressed */
-                        if (normal_length == 1 && m_modifiers & GDK_CONTROL_MASK) {
-                                if (normal[0] == '\010')
-                                        normal[0] = '\177';
-                                else if (normal[0] == '\177')
-                                        normal[0] = '\010';
-                        }
-			handled = TRUE;
+                        map_erase_binding(m_backspace_binding,
+                                          EraseMode::eTTY,
+                                          m_modifiers,
+                                          normal,
+                                          normal_length,
+                                          suppress_alt_esc,
+                                          add_modifiers);
+			handled = true;
 			break;
 		case GDK_KEY_KP_Delete:
 		case GDK_KEY_Delete:
-			switch (m_delete_binding) {
-			case EraseMode::eASCII_BACKSPACE:
-				normal = g_strdup("\010");
-				normal_length = 1;
-				break;
-			case EraseMode::eASCII_DELETE:
-				normal = g_strdup("\177");
-				normal_length = 1;
-				break;
-			case EraseMode::eTTY:
-				if (pty() &&
-				    tcgetattr(pty()->fd(), &tio) != -1)
-				{
-					normal = g_strdup_printf("%c", tio.c_cc[VERASE]);
-					normal_length = 1;
-				}
-				suppress_alt_esc = FALSE;
-				break;
-			case EraseMode::eDELETE_SEQUENCE:
-			case EraseMode::eAUTO:
-			default:
-                                normal = g_strdup("\e[3~");
-                                normal_length = 4;
-                                add_modifiers = TRUE;
-				break;
-			}
-			handled = TRUE;
-                        /* FIXMEchpe: why? this overrides the FALSE set above? */
-			suppress_alt_esc = TRUE;
+                        map_erase_binding(m_delete_binding,
+                                          EraseMode::eDELETE_SEQUENCE,
+                                          m_modifiers,
+                                          normal,
+                                          normal_length,
+                                          suppress_alt_esc,
+                                          add_modifiers);
+                        handled = true;
 			break;
 		case GDK_KEY_KP_Insert:
 		case GDK_KEY_Insert:
@@ -6223,9 +6150,12 @@ Terminal::feed_mouse_event(vte::grid::coords const& rowcol /* confined */,
 	/* Check the extensions in decreasing order of preference. Encoding the release event above assumes that 1006 comes first. */
 	if (m_modes_private.XTERM_MOUSE_EXT_SGR()) {
 		/* xterm's extended mode (1006) */
-                send(is_release ? VTE_REPLY_XTERM_MOUSE_EXT_SGR_REPORT_BUTTON_RELEASE
-                                : VTE_REPLY_XTERM_MOUSE_EXT_SGR_REPORT_BUTTON_PRESS,
-                     {cb, (int)cx, (int)cy});
+                if (is_release)
+                        send(vte::parser::reply::XTERM_MOUSE_EXT_SGR_REPORT_BUTTON_RELEASE().
+                             append_params({cb, (int)cx, (int)cy}));
+                else
+                        send(vte::parser::reply::XTERM_MOUSE_EXT_SGR_REPORT_BUTTON_PRESS().
+                             append_params({cb, (int)cx, (int)cy}));
         } else if (cb <= 223 && cx <= 223 && cy <= 223) {
 		/* legacy mode */
                 char buf[8];
@@ -6241,7 +6171,10 @@ Terminal::feed_mouse_event(vte::grid::coords const& rowcol /* confined */,
 void
 Terminal::feed_focus_event(bool in)
 {
-        send(in ? VTE_REPLY_XTERM_FOCUS_IN : VTE_REPLY_XTERM_FOCUS_OUT, {});
+        if (in)
+                send(vte::parser::reply::XTERM_FOCUS_IN());
+        else
+                send(vte::parser::reply::XTERM_FOCUS_OUT());
 }
 
 void

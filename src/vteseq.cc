@@ -34,7 +34,10 @@
 #include "vtegtk.hh"
 #include "caps.hh"
 #include "debug.hh"
+#include "keymap.h"
 #include "sgr.hh"
+#include "base16.hh"
+#include "xtermcap.hh"
 
 #define BEL_C0 "\007"
 #define ST_C0 _VTE_CAP_ST
@@ -1610,11 +1613,15 @@ Terminal::set_color_index(vte::parser::Sequence const& seq,
                 auto const color = resolve_reported_color(index).value_or(vte::color::rgb{0, 0, 0});
 
                 if (number)
-                        reply(seq, VTE_REPLY_OSC, {}, "%d;%d;rgb:%04x/%04x/%04x",
-                              osc, *number, color.red, color.green, color.blue);
+                        reply(seq,
+                              vte::parser::reply::OSC().
+                              format("{};{};rgb:{:04x}/{:04x}/{:04x}",
+                                     osc, *number, color.red, color.green, color.blue));
                 else
-                        reply(seq, VTE_REPLY_OSC, {}, "%d;rgb:%04x/%04x/%04x",
-                              osc, color.red, color.green, color.blue);
+                        reply(seq,
+                              vte::parser::reply::OSC().
+                              format("{};rgb:{:04x}/{:04x}/{:04x}",
+                                     osc, color.red, color.green, color.blue));
         } else {
                 vte::color::rgb color;
 
@@ -1876,7 +1883,9 @@ Terminal::reply_termprop_query(vte::parser::Sequence const& seq,
                 }
         }
 
-        reply(seq, VTE_REPLY_OSC, {}, "%d;%s", VTE_OSC_VTE_TERMPROP,str.c_str());
+        reply(seq,
+              vte::parser::reply::OSC().
+              format("{};{}", int(VTE_OSC_VTE_TERMPROP), str));
 }
 
 #endif // VTE_DEBUG
@@ -2014,7 +2023,9 @@ try
                 // Reserved for future extension. Reply with an empty
                 // termprop set statement for forward compatibility.
 
-                reply(seq, VTE_REPLY_OSC, {}, "%d", VTE_OSC_VTE_TERMPROP);
+                reply(seq,
+                      vte::parser::reply::OSC().
+                      format("{}", int(VTE_OSC_VTE_TERMPROP)));
         }
 }
 catch (...)
@@ -3040,16 +3051,17 @@ Terminal::DA1(vte::parser::Sequence const& seq)
         // See https://gitlab.gnome.org/GNOME/vte/-/issues/2724
         auto const level = g_test_flags ? 65 : 61;
 
-        reply(seq, VTE_REPLY_DECDA1R,
-              {level,
-               1, // 132-column mode
+        reply(seq,
+              vte::parser::reply::DECDA1R().
+              append_params({level,
+                              1, // 132-column mode
 #if WITH_SIXEL
-               m_sixel_enabled ? 4 : -2 /* skip */, // sixel graphics
+                              m_sixel_enabled ? 4 : -2 /* skip */, // sixel graphics
 #endif
-               21, // horizontal scrolling
-               22, // colour text
-               28 // rectangular editing
-              });
+                              21, // horizontal scrolling
+                              22, // colour text
+                              28 // rectangular editing
+                      }));
 }
 
 void
@@ -3086,7 +3098,9 @@ Terminal::DA2(vte::parser::Sequence const& seq)
         // See https://gitlab.gnome.org/GNOME/vte/-/issues/2724
         auto const level = g_test_flags ? 65 : 61;
 
-        reply(seq, VTE_REPLY_DECDA2R, {level, firmware_version(), 1});
+        reply(seq,
+              vte::parser::reply::DECDA2R().
+              append_params({level, firmware_version(), 1}));
 }
 
 void
@@ -3097,7 +3111,7 @@ Terminal::DA3(vte::parser::Sequence const& seq)
          * The tertiary DA is used to query the terminal-ID.
          *
          * Reply: DECRPTUI
-         *   DATA: four pairs of are hexadecimal number, encoded 4 bytes.
+         *   DATA: four pairs of hexadecimal digits, encoded 4 bytes.
          *   The first byte denotes the manufacturing site, the remaining
          *   three is the terminal's ID.
          *
@@ -3107,7 +3121,9 @@ Terminal::DA3(vte::parser::Sequence const& seq)
         if (seq.collect1(0, 0) != 0)
                 return;
 
-        reply(seq, VTE_REPLY_DECRPTUI, {});
+        reply(seq,
+              vte::parser::reply::DECRPTUI().
+              set_string(vte::base16_encode("~VTE"sv)));
 }
 
 void
@@ -4344,15 +4360,17 @@ Terminal::DECREQTPARM(vte::parser::Sequence const& seq)
                 #if 0
                 screen->flags &= ~VTE_FLAG_INHIBIT_TPARM;
                 #endif
-                reply(seq, VTE_REPLY_DECREPTPARM,
-                      {2, 1, 1, 120, 120, 1, 0});
+                reply(seq,
+                      vte::parser::reply::DECREPTPARM().
+                      append_params({2, 1, 1, 120, 120, 1, 0}));
                 break;
         case 1:
                 #if 0
                 screen->flags |= VTE_FLAG_INHIBIT_TPARM;
                 #endif
-                reply(seq, VTE_REPLY_DECREPTPARM,
-                      {3, 1, 1, 120, 120, 1, 0});
+                reply(seq,
+                      vte::parser::reply::DECREPTPARM().
+                      append_params({3, 1, 1, 120, 120, 1, 0}));
                 break;
         case 2:
         case 3:
@@ -4422,12 +4440,18 @@ Terminal::DECRQCRA(vte::parser::Sequence const& seq)
 
 #if !VTE_DEBUG
         /* Send a dummy reply */
-        return reply(seq, VTE_REPLY_DECCKSR, {id}, "0000");
+        return reply(seq,
+                     vte::parser::reply::DECCKSR().
+                     append_param(id).
+                     set_string("0000"));
 #else
 
         /* Not in test mode? Send a dummy reply */
         if ((g_test_flags & VTE_TEST_FLAG_DECRQCRA) == 0) {
-                return reply(seq, VTE_REPLY_DECCKSR, {id}, "0000");
+                return reply(seq,
+                             vte::parser::reply::DECCKSR().
+                             append_param(id).
+                             set_string("0000"));
         }
 
         idx = seq.next(idx);
@@ -4441,7 +4465,10 @@ Terminal::DECRQCRA(vte::parser::Sequence const& seq)
         else
                 checksum = 0; /* empty area */
 
-        reply(seq, VTE_REPLY_DECCKSR, {id}, "%04X", checksum);
+        reply(seq,
+              vte::parser::reply::DECCKSR().
+              append_param(id).
+              format("{:04X}", checksum));
 #endif /* VTE_DEBUG */
 }
 
@@ -4464,11 +4491,13 @@ Terminal::DECRQDE(vte::parser::Sequence const& seq)
          *             VT525
          */
 
-        reply(seq, VTE_REPLY_DECRPDE, {int(m_row_count),
-                                       int(m_column_count),
-                                       1, // column
-                                       1, // row
-                                       1}); // page
+        reply(seq,
+              vte::parser::reply::DECRPDE().
+              append_params({int(m_row_count),
+                              int(m_column_count),
+                              1, // column
+                              1, // row
+                              1})); // page
 }
 
 void
@@ -4531,7 +4560,9 @@ Terminal::DECRQM_ECMA(vte::parser::Sequence const& seq)
                          param, m_modes_ecma.mode_to_cstring(mode),
                          value);
 
-        reply(seq, VTE_REPLY_DECRPM_ECMA, {param, value});
+        reply(seq,
+              vte::parser::reply::DECRPM_ECMA().
+              append_params({param, value}));
 }
 
 void
@@ -4560,7 +4591,9 @@ Terminal::DECRQM_DEC(vte::parser::Sequence const& seq)
                          param, m_modes_private.mode_to_cstring(mode),
                          value);
 
-        reply(seq, VTE_REPLY_DECRPM_DEC, {param, value});
+        reply(seq,
+              vte::parser::reply::DECRPM_DEC().
+              append_params({param, value}));
 }
 
 void
@@ -4605,7 +4638,9 @@ Terminal::DECRQPSR(vte::parser::Sequence const& seq)
                  *   DATA: report in the format specified in DEC STD 070 p5–200ff
                  */
                 // For now, send an error report
-                reply(seq, VTE_REPLY_DECPSR, {0});
+                reply(seq,
+                      vte::parser::reply::DECPSR().
+                      append_param(0));
                 break;
 
         case 2:
@@ -4615,7 +4650,9 @@ Terminal::DECRQPSR(vte::parser::Sequence const& seq)
                  *   DATA: report in the format specified in DEC STD 070 p5–204
                  */
                 // For now, send an error report
-                reply(seq, VTE_REPLY_DECPSR, {0});
+                reply(seq,
+                      vte::parser::reply::DECPSR().
+                      append_param(0));
                 break;
         }
 }
@@ -4668,45 +4705,67 @@ Terminal::DECRQSS(vte::parser::Sequence const& seq)
          * the request as invalid.
          */
         if (i != str.size() || rv != VTE_SEQ_CSI || request.size() > 0 /* any parameters */)
-                return reply(seq, VTE_REPLY_DECRPSS, {0});
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(0));
 
         switch (request.command()) {
 
         case VTE_CMD_DECSACE:
-                return reply(seq, VTE_REPLY_DECRPSS, {1},
-                             {VTE_REPLY_DECSACE, {m_decsace_is_rectangle ? 2 : 0 /* or 1 */}});
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(1).
+                             set_builder(vte::parser::reply::DECSACE().
+                                         append_param(m_decsace_is_rectangle ? 2 : 0 /* or 1 */)));
 
         case VTE_CMD_DECSCUSR:
-                return reply(seq, VTE_REPLY_DECRPSS, {1}, {VTE_REPLY_DECSCUSR, {int(m_cursor_style)}});
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(1).
+                             set_builder(vte::parser::reply::DECSCUSR().
+                                         append_param(int(m_cursor_style))));
 
         case VTE_CMD_DECSGR: {
-                auto builder = vte::parser::ReplyBuilder(VTE_REPLY_DECSGR, {});
+                auto builder = vte::parser::reply::DECSGR();
                 append_attr_decsgr_params(m_defaults.attr, builder);
-                return reply(seq, VTE_REPLY_DECRPSS, {1},
-                             std::move(builder));
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(1).
+                             set_builder(builder));
         }
 
         case VTE_CMD_DECSTBM:
-                return reply(seq, VTE_REPLY_DECRPSS, {1},
-                             {VTE_REPLY_DECSTBM, {m_scrolling_region.top() + 1,
-                                                  m_scrolling_region.bottom() + 1}});
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(1).
+                             set_builder(vte::parser::reply::DECSTBM().
+                                         append_params({m_scrolling_region.top() + 1,
+                                                         m_scrolling_region.bottom() + 1})));
 
         case VTE_CMD_DECSLPP:
         case VTE_CMD_DECSLPP_OR_XTERM_WM:
-                return reply(seq, VTE_REPLY_DECRPSS, {1},
-                             {VTE_REPLY_DECSLPP, {int(m_row_count)}});
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(1).
+                             set_builder(vte::parser::reply::DECSLPP().
+                                         append_param(int(m_row_count))));
 
         case VTE_CMD_DECSLRM:
         case VTE_CMD_DECSLRM_OR_SCOSC:
-                return reply(seq, VTE_REPLY_DECRPSS, {1},
-                             {VTE_REPLY_DECSLRM, {m_scrolling_region.left() + 1,
-                                                  m_scrolling_region.right() + 1}});
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(1).
+                             set_builder(vte::parser::reply::DECSLRM().
+                                         append_params({m_scrolling_region.left() + 1,
+                                                         m_scrolling_region.right() + 1})));
 
         case VTE_CMD_SGR: {
-                auto builder = vte::parser::ReplyBuilder(VTE_REPLY_SGR, {});
+                auto builder = vte::parser::reply::SGR();
                 append_attr_sgr_params(m_defaults.attr, builder);
-                return reply(seq, VTE_REPLY_DECRPSS, {1},
-                             std::move(builder));
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(1).
+                             set_builder(builder));
         }
 
         case VTE_CMD_DECAC:
@@ -4743,7 +4802,9 @@ Terminal::DECRQSS(vte::parser::Sequence const& seq)
         case VTE_CMD_XTERM_MODKEYS:
         case VTE_CMD_XTERM_STM:
         default:
-                return reply(seq, VTE_REPLY_DECRPSS, {0});
+                return reply(seq,
+                             vte::parser::reply::DECRPSS().
+                             append_param(0));
         }
 }
 
@@ -4773,7 +4834,9 @@ Terminal::DECRQTSR(vte::parser::Sequence const& seq)
                  *   DATA: report in an unspecified format
                  */
                 // For now, send an error report
-                return reply(seq, VTE_REPLY_DECTSR, {0});
+                return reply(seq,
+                             vte::parser::reply::DECTSR().
+                             append_param(0));
 
         case 2:
                 /* DECCTR – Color table request
@@ -4788,7 +4851,9 @@ Terminal::DECRQTSR(vte::parser::Sequence const& seq)
                  *   DATA: report in an unspecified format
                  */
                 // For now, send an error report
-                return reply(seq, VTE_REPLY_DECTSR, {0});
+                return reply(seq,
+                             vte::parser::reply::DECTSR().
+                             append_param(0));
         }
 }
 
@@ -5802,7 +5867,7 @@ Terminal::DECSR(vte::parser::Sequence const& seq)
          */
         auto const token = seq.collect1(0);
 	reset(true, true);
-        send(VTE_REPLY_DECSRC, {token});
+        send(vte::parser::reply::DECSRC().append_param(token));
 }
 
 void
@@ -6288,7 +6353,9 @@ Terminal::DSR_ECMA(vte::parser::Sequence const& seq)
                  *     0 = ok
                  *     3 = malfunction
                  */
-                reply(seq, VTE_REPLY_DSR, {0});
+                reply(seq,
+                      vte::parser::reply::DSR().
+                      append_param(0));
                 break;
 
         case 6:
@@ -6314,7 +6381,9 @@ Terminal::DSR_ECMA(vte::parser::Sequence const& seq)
                 rowval = CLAMP(get_xterm_cursor_row(), top, bottom) - top;
                 colval = CLAMP(get_xterm_cursor_column(), left, right) - left;
 
-                reply(seq, VTE_REPLY_CPR, {int(rowval + 1), int(colval + 1)});
+                reply(seq,
+                      vte::parser::reply::CPR().
+                      append_params({int(rowval + 1), int(colval + 1)}));
                 break;
 
         default:
@@ -6364,7 +6433,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                 rowval = CLAMP(get_xterm_cursor_row(), top, bottom) - top;
                 colval = CLAMP(get_xterm_cursor_column(), left, right) - left;
 
-                reply(seq, VTE_REPLY_DECXCPR, {int(rowval + 1), int(colval + 1), 1});
+                reply(seq,
+                      vte::parser::reply::DECXCPR().
+                      append_params({int(rowval + 1), int(colval + 1), 1}));
                 break;
 
         case 15:
@@ -6377,7 +6448,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  *     18 = printer busy
                  *     19 = printer assigned to another session
                  */
-                reply(seq, VTE_REPLY_DECDSR, {13});
+                reply(seq,
+                      vte::parser::reply::DECDSR().
+                      append_param(13));
                 break;
 
         case 25:
@@ -6389,7 +6462,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  *
                  * Since we don't do UDK, we report them as locked.
                  */
-                reply(seq, VTE_REPLY_DECDSR, {21});
+                reply(seq,
+                      vte::parser::reply::DECDSR().
+                      append_param(21));
                 break;
 
         case 26:
@@ -6410,7 +6485,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  *     4 = LK411
                  *     5 = PCXAL
                  */
-                reply(seq, VTE_REPLY_DECDSR, {27, 0, 0, 5});
+                reply(seq,
+                      vte::parser::reply::DECDSR().
+                      append_params({27, 0, 0, 5}));
                 break;
 
         case 55:
@@ -6423,7 +6500,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  * Since we don't implement the DEC locator mode,
                  * we reply with 53.
                  */
-                reply(seq, VTE_REPLY_DECDSR, {53});
+                reply(seq,
+                      vte::parser::reply::DECDSR().
+                      append_param(53));
                 break;
 
         case 56:
@@ -6437,7 +6516,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  * Since we don't implement the DEC locator mode,
                  * we reply with 0.
                  */
-                reply(seq, VTE_REPLY_DECDSR, {57, 0});
+                reply(seq,
+                      vte::parser::reply::DECDSR().
+                      append_params({57, 0}));
                 break;
 
         case 62:
@@ -6445,7 +6526,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  * Reply: DECMSR
                  *   @arg[0]: floor((number of bytes available) / 16); we report 0
                  */
-                reply(seq, VTE_REPLY_DECMSR, {0});
+                reply(seq,
+                      vte::parser::reply::DECMSR().
+                      append_param(0));
                 break;
 
         case 63:
@@ -6456,7 +6539,10 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  *
                  * Reply with a dummy checksum.
                  */
-                reply(seq, VTE_REPLY_DECCKSR, {seq.collect1(1)}, "0000");
+                reply(seq,
+                      vte::parser::reply::DECCKSR().
+                      append_param(seq.collect1(1)).
+                      set_string("0000"));
                 break;
 
         case 75:
@@ -6467,7 +6553,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  *     71 = malfunction or communication error
                  *     73 = no data loss since last power-up
                  */
-                reply(seq, VTE_REPLY_DECDSR, {70});
+                reply(seq,
+                      vte::parser::reply::DECDSR().
+                      append_param(70));
                 break;
 
         case 85:
@@ -6477,7 +6565,9 @@ Terminal::DSR_DEC(vte::parser::Sequence const& seq)
                  *     ...
                  *     83 = not configured
                  */
-                reply(seq, VTE_REPLY_DECDSR, {83});
+                reply(seq,
+                      vte::parser::reply::DECDSR().
+                      append_param(83));
                 break;
 
         default:
@@ -7622,7 +7712,6 @@ try
         auto const u32str = seq.string();
 
         auto str = std::string{};
-#if defined(__cpp_lib_string_resize_and_overwrite) && __cpp_lib_string_resize_and_overwrite >= 202110l
         str.resize_and_overwrite
                 (simdutf::utf8_length_from_utf32(u32str),
                  [&](char* data,
@@ -7630,10 +7719,6 @@ try
                          return simdutf::convert_utf32_to_utf8
                                  (u32str, std::span<char>(data, data_size));
                  });
-#else
-        str.resize(simdutf::utf8_length_from_utf32(u32str) + 1);
-        str.resize(simdutf::convert_utf32_to_utf8(u32str, std::span<char>(str.data(), str.size())));
-#endif // C++23
 
         vte::parser::StringTokeniser tokeniser{str, ';'};
         auto it = tokeniser.cbegin();
@@ -9782,7 +9867,8 @@ Terminal::XTERM_REPORTSGR(vte::parser::Sequence const& seq)
 #if VTE_DEBUG
         // Send a dummy reply unless in test mode (reuse DECRQCRA test flag)
         if ((g_test_flags & VTE_TEST_FLAG_DECRQCRA) == 0)
-                return reply(seq, VTE_REPLY_SGR, {});
+                return reply(seq,
+                             vte::parser::reply::SGR());
 
         auto idx = 0u;
         auto const rect = collect_rect(seq, idx);
@@ -9793,7 +9879,8 @@ Terminal::XTERM_REPORTSGR(vte::parser::Sequence const& seq)
         // the attributes one cell at a time; don't bother trying to
         // gather the common attributes in a larger rect.
         if (rect.width() > 1 || rect.height() > 1)
-                return reply(seq, VTE_REPLY_SGR, {});
+                return reply(seq,
+                             vte::parser::reply::SGR());
 
         auto attr = VteCellAttr{};
         if (auto rowdata =
@@ -9803,9 +9890,9 @@ Terminal::XTERM_REPORTSGR(vte::parser::Sequence const& seq)
                 }
         }
 
-        auto builder = vte::parser::ReplyBuilder(VTE_REPLY_SGR, {});
+        auto builder = vte::parser::reply::SGR();
         append_attr_sgr_params(attr, builder);
-        return send(seq, builder);
+        return reply(seq, builder);
 #endif // VTE_DEBUG
 }
 
@@ -9825,12 +9912,131 @@ Terminal::XTERM_RPM(vte::parser::Sequence const& seq)
 
 void
 Terminal::XTERM_RQTCAP(vte::parser::Sequence const& seq)
+try
 {
         /*
-         * XTERM_TQTCAP - xterm request termcap/terminfo
+         * XTERM_RQTCAP - xterm request termcap/terminfo
          *
-         * Probably not worth implementing.
+         * Gets the terminfo/termcap string. The constrol string
+         * consists of semicolon (';') separated parameters, which
+         * are hex-encoded terminfo/termcap capability names.
+         *
+         * The response is a XTERM_TCAPR report, which consists
+         * of semicolon (';') separated parameters, each of which
+         * is the hex-encoded capability name, followed by an equal
+         * sign ('='), followed by the hex-encoded capability.
+         *
+         * In xterm, an unknown capability in the control string
+         * terminates processing of the control string; in vte
+         * we continue past an unknown capability to process the
+         * remaining capability requests.
+         *
+         * References: XTERM
          */
+
+        auto const u32str = seq.string();
+
+        auto str = std::string{};
+        str.resize_and_overwrite
+                (simdutf::utf8_length_from_utf32(u32str),
+                 [&](char* data,
+                     size_t data_size) constexpr noexcept -> size_t {
+                         return simdutf::convert_utf32_to_utf8
+                                 (u32str, std::span<char>(data, data_size));
+                 });
+
+        auto tokeniser = vte::parser::StringTokeniser{str, ';'};
+        auto it = tokeniser.cbegin();
+        auto const cend = tokeniser.cend();
+
+        auto replystr = std::string{};
+        while (it != cend) {
+                if (auto const capability = vte::base16_decode(*it, false)) {
+                        if (auto [keycode, state] = xtermcap_get_keycode(*capability);
+                            keycode != -1) {
+
+                                auto cap = std::string{};
+
+                                switch (keycode) {
+                                case XTERM_KEY_F63 ... XTERM_KEY_F36:
+                                        break;
+                                case XTERM_KEY_COLORS:
+                                        cap = "256";
+                                        break;
+                                case XTERM_KEY_RGB:
+                                        cap = "8";
+                                        break;
+                                case XTERM_KEY_TCAPNAME:
+                                        cap = "xterm-256color";
+                                        break;
+                                case GDK_KEY_Delete:
+                                case GDK_KEY_BackSpace: {
+                                        char* normal = nullptr;
+                                        auto len = 0uz;
+                                        auto suppress = false, add_modifiers = false;
+                                        map_erase_binding(m_delete_binding,
+                                                          keycode == GDK_KEY_Delete ? EraseMode::eDELETE_SEQUENCE : EraseMode::eTTY,
+                                                          state,
+                                                          normal,
+                                                          len,
+                                                          suppress,
+                                                          add_modifiers);
+                                        if (add_modifiers) {
+                                                _vte_keymap_key_add_key_modifiers(keycode,
+                                                                                  state,
+                                                                                  m_modes_private.DEC_APPLICATION_CURSOR_KEYS(),
+                                                                                  &normal,
+                                                                                  &len);
+                                        }
+
+                                        if (normal && len)
+                                                cap = normal;
+                                        g_free(normal);
+                                        break;
+                                }
+                                default:
+                                        if (keycode >= 0) {
+                                                // Use the keymap to get the string
+                                                char* normal = nullptr;
+                                                auto len = 0uz;
+                                                _vte_keymap_map(keycode, state,
+                                                                m_modes_private.DEC_APPLICATION_CURSOR_KEYS(),
+                                                                m_modes_private.DEC_APPLICATION_KEYPAD(),
+                                                                &normal,
+                                                                &len);
+                                                if (normal && len)
+                                                        cap = normal;
+                                                g_free(normal);
+                                        }
+                                        break;
+                                }
+
+                                if (cap.size()) {
+                                        if (replystr.size())
+                                                replystr.push_back(';');
+
+                                        fmt::format_to(std::back_inserter(replystr),
+                                                       "{}={}",
+                                                       *it,
+                                                       vte::base16_encode(cap));
+                                }
+                        } else {
+                                // unknown capability
+                        }
+                } else {
+                        // failed to hexdecode
+                }
+
+                ++it;
+        }
+
+        reply(seq,
+              vte::parser::reply::XTERM_TCAPR().
+              append_param(replystr.size() ? 1 : 0).
+              set_string(std::move(replystr)));
+}
+catch (...)
+{
 }
 
 void
@@ -9998,7 +10204,9 @@ Terminal::XTERM_SMGRAPHICS(vte::parser::Sequence const& seq)
                 break;
         }
 
-        reply(seq, VTE_REPLY_XTERM_SMGRAPHICS_REPORT, {attr, status, rv0, rv1});
+        reply(seq,
+              vte::parser::reply::XTERM_SMGRAPHICS_REPORT().
+              append_params({attr, status, rv0, rv1}));
 }
 
 void
@@ -10045,7 +10253,7 @@ Terminal::XTERM_STCAP(vte::parser::Sequence const& seq)
         /*
          * XTERM_STCAP - xterm set termcap/terminfo
          *
-         * Probably not worth implementing.
+         * Won't implement.
          */
 }
 
@@ -10070,7 +10278,9 @@ Terminal::XTERM_VERSION(vte::parser::Sequence const& seq)
         if (seq.collect1(0, 0) != 0)
                 return;
 
-        reply(seq, VTE_REPLY_XTERM_DSR, {}, "VTE(%d)", firmware_version());
+        reply(seq,
+              vte::parser::reply::XTERM_DSR().
+              format("VTE({})", firmware_version()));
 }
 
 void
@@ -10165,24 +10375,33 @@ Terminal::XTERM_WM(vte::parser::Sequence const& seq)
                 break;
 
         case VTE_XTERM_WM_GET_WINDOW_STATE:
-                reply(seq, VTE_REPLY_XTERM_WM, {m_xterm_wm_iconified ? 2 : 1});
+                reply(seq,
+                      vte::parser::reply::XTERM_WM().
+                      append_param(m_xterm_wm_iconified ? 2 : 1));
                 break;
 
         case VTE_XTERM_WM_GET_WINDOW_POSITION:
                 /* Reply with fixed origin. */
-                reply(seq, VTE_REPLY_XTERM_WM, {3, 0, 0});
+                reply(seq,
+                      vte::parser::reply::XTERM_WM().
+                      append_params({3, 0, 0}));
                 break;
 
         case VTE_XTERM_WM_GET_WINDOW_SIZE_PIXELS: {
                 auto const height = int(m_row_count * m_cell_height_unscaled);
                 auto const width = int(m_column_count * m_cell_width_unscaled);
-                reply(seq, VTE_REPLY_XTERM_WM, {4, height, width});
+                reply(seq,
+                      vte::parser::reply::XTERM_WM().
+                      append_params({4, height, width}));
                 break;
         }
 
         case VTE_XTERM_WM_GET_WINDOW_SIZE_CELLS:
-                reply(seq, VTE_REPLY_XTERM_WM,
-                      {8, (int)m_row_count, (int)m_column_count});
+                reply(seq,
+                      vte::parser::reply::XTERM_WM().
+                      append_params({8,
+                                      (int)m_row_count,
+                                      (int)m_column_count}));
                 break;
 
         case VTE_XTERM_WM_GET_SCREEN_SIZE_CELLS: {
@@ -10198,8 +10417,11 @@ Terminal::XTERM_WM(vte::parser::Sequence const& seq)
                 auto width = int(m_column_count * m_cell_width);
 #endif
 
-                reply(seq, VTE_REPLY_XTERM_WM,
-                      {9, height / int(m_cell_height), width / int(m_cell_width)});
+                reply(seq,
+                      vte::parser::reply::XTERM_WM().
+                      append_params({9,
+                                      height / int(m_cell_height),
+                                      width / int(m_cell_width)}));
                 break;
         }
 
@@ -10210,7 +10432,9 @@ Terminal::XTERM_WM(vte::parser::Sequence const& seq)
                  * http://marc.info/?l=bugtraq&m=104612710031920&w=2
                  * and CVE-2003-0070.
                  */
-                send(seq, vte::parser::u8SequenceBuilder{VTE_SEQ_OSC, "L"s});
+                reply(seq,
+                     vte::parser::reply::OSC().
+                     set_string("L"));
                 break;
 
         case VTE_XTERM_WM_GET_WINDOW_TITLE:
@@ -10220,7 +10444,9 @@ Terminal::XTERM_WM(vte::parser::Sequence const& seq)
                  * http://marc.info/?l=bugtraq&m=104612710031920&w=2
                  * and CVE-2003-0070.
                  */
-                send(seq, vte::parser::u8SequenceBuilder{VTE_SEQ_OSC, "l"s});
+                reply(seq,
+                      vte::parser::reply::OSC().
+                      set_string("l"));
                 break;
 
         case VTE_XTERM_WM_TITLE_STACK_PUSH:

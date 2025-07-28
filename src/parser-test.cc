@@ -51,14 +51,17 @@ class vte_seq_builder : public u32SequenceBuilder {
 public:
         vte_seq_builder(unsigned int type,
                         uint32_t f)
-                : u32SequenceBuilder(type, f)
+                : u32SequenceBuilder{}
         {
+                set_type(type);
+                set_final(f);
         }
 
         vte_seq_builder(unsigned int type,
                         u32SequenceBuilder::string_type const& str)
-                : u32SequenceBuilder(type)
+                : u32SequenceBuilder{}
         {
+                set_type(type);
                 set_string(str);
         }
 
@@ -87,6 +90,23 @@ feed_parser(std::u32string const& s)
                 if (rv < 0)
                         break;
         }
+        return rv;
+}
+
+// Feeds the string to the parser, expecting NONE returns
+// until the last character.
+static int
+feed_parser_until(std::u32string const& s)
+{
+        int rv = VTE_SEQ_NONE;
+        auto consumed = 0uz;
+        for (auto it : s) {
+                ++consumed;
+                rv = parser.feed((uint32_t)(char32_t)it);
+                if (rv != 0)
+                        break;
+        }
+        g_assert_cmpuint(consumed, ==, s.size());
         return rv;
 }
 
@@ -614,25 +634,25 @@ test_seq_csi(void)
 
 static void
 test_seq_sci(uint32_t f,
-             bool valid)
+             unsigned type)
 {
         vte_seq_builder b{VTE_SEQ_SCI, f};
 
         /* First with C0 SCI */
         auto rv = feed_parser(b, false);
-        if (valid) {
+        g_assert_cmpint(rv, ==, type);
+        if (type == VTE_SEQ_SCI) {
                 g_assert_cmpint(rv, ==, VTE_SEQ_SCI);
-                b.assert_equal_full(seq);
-        } else
-                g_assert_cmpint(rv, !=, VTE_SEQ_SCI);
+                g_assert_cmpuint(seq.terminator(), ==, f);
+        }
 
         /* Now with C1 SCI */
         rv = feed_parser(b, true);
-        if (valid) {
-                g_assert_cmpint(rv, ==, VTE_SEQ_SCI);
+        g_assert_cmpint(rv, ==, type);
+        if (type == VTE_SEQ_SCI) {
                 b.assert_equal_full(seq);
-        } else
-                g_assert_cmpint(rv, !=, VTE_SEQ_SCI);
+                g_assert_cmpuint(seq.terminator(), ==, f);
+        }
 }
 
 static void
@@ -644,12 +664,43 @@ test_seq_sci(void)
          */
         parser.reset();
 
+        for (uint32_t f = 0x0; f <= 0x7; ++f)
+                test_seq_sci(f, VTE_SEQ_IGNORE);
         for (uint32_t f = 0x8; f <= 0xd; ++f)
-                test_seq_sci(f, true);
+                test_seq_sci(f, VTE_SEQ_SCI);
+        for (uint32_t f = 0xe; f <= 0x19; ++f)
+                test_seq_sci(f, VTE_SEQ_IGNORE);
+        for (uint32_t f = 0x1c; f <= 0x1f; ++f)
+                test_seq_sci(f, VTE_SEQ_IGNORE);
         for (uint32_t f = 0x20; f <= 0x7e; ++f)
-                test_seq_sci(f, true);
-        for (uint32_t f = 0x7f; f <= 0xff; ++f)
-                test_seq_sci(f, false);
+                test_seq_sci(f, VTE_SEQ_SCI);
+
+        // C1 controls omitted, since they abort the SCI and
+        // start their resp. sequence.
+
+        for (uint32_t f = 0xa0; f <= 0xff; ++f)
+                test_seq_sci(f, VTE_SEQ_IGNORE);
+
+        // SUB is special: it aborts the SCI and substitutes
+        test_seq_sci(0x1a, VTE_SEQ_CONTROL);
+
+        // ESC is special: it aborts the SCI and starts an escape sequence
+        test_seq_sci(0x1b, VTE_SEQ_NONE);
+
+        // DEL is special: it doesn't do anything
+        test_seq_sci(0x7f, VTE_SEQ_NONE);
+        parser.reset();
+        auto rv = feed_parser(U"\eZ\u007Fa"s);
+        g_assert_cmpint(rv, ==, VTE_SEQ_SCI);
+        g_assert_cmpuint(seq.terminator(), ==, U'a');
+        rv = feed_parser(U"\u009A\u007Fa"s);
+        g_assert_cmpint(rv, ==, VTE_SEQ_SCI);
+        g_assert_cmpuint(seq.terminator(), ==, U'a');
+
+        // Test some sporadic non-8-bit final characters just for completeness
+        test_seq_sci(0x100, VTE_SEQ_IGNORE);
+        test_seq_sci(0xFFFF, VTE_SEQ_IGNORE);
+        test_seq_sci(0x10FFFF, VTE_SEQ_IGNORE);
 }
 
 G_GNUC_UNUSED
@@ -729,16 +780,26 @@ test_seq_dcs(uint32_t f,
                 /* First with C0 DCS */
                 auto rv0 = feed_parser(b, false);
                 g_assert_cmpint(rv0, ==, expected_rv0);
-                if (rv0 != VTE_SEQ_ESCAPE && rv0 != VTE_SEQ_NONE)
+                if (rv0 == VTE_SEQ_DCS)
                         b.assert_equal_full(seq);
-                if (rv0 == VTE_SEQ_ESCAPE)
+                else if (rv0 == VTE_SEQ_ESCAPE)
                         g_assert_cmpint(seq.command(), ==, VTE_CMD_ST);
+                else if (rv0 == VTE_SEQ_IGNORE)
+                        ;
+                else
+                        g_assert_not_reached();
 
                 /* Now with C1 DCS */
                 auto rv1 = feed_parser(b, true);
                 g_assert_cmpint(rv1, ==, expected_rv1);
-                if (rv1 != VTE_SEQ_NONE)
+                if (rv1 == VTE_SEQ_DCS)
                         b.assert_equal_full(seq);
+                else if (rv1 == VTE_SEQ_CONTROL)
+                        g_assert_cmpint(seq.command(), ==, VTE_CMD_ST);
+                else if (rv1 == VTE_SEQ_IGNORE)
+                        ;
+                else
+                        g_assert_not_reached();
         }
 }
 
@@ -753,7 +814,7 @@ test_seq_dcs(uint32_t p,
                 test_seq_dcs(f, p, params, i, 0, str, expected_rv);
         }
 
-        for (uint32_t f = 0x30; f < 0x7f; f++) {
+        for (uint32_t f = 0x40; f < 0x7f; f++) {
                 for (i[0] = 0x20; i[0] < 0x30; i[0]++) {
                         test_seq_dcs(f, p, params, i, 1, str, expected_rv);
                         for (i[1] = 0x20; i[1] < 0x30; i[1]++) {
@@ -810,7 +871,7 @@ static void
 test_seq_dcs(void)
 {
         /* Length exceeded */
-        test_seq_dcs_simple(std::u32string(VTE_SEQ_STRING_MAX_CAPACITY + 1, 0x100000), VTE_SEQ_NONE);
+        test_seq_dcs_simple(std::u32string(VTE_SEQ_STRING_MAX_CAPACITY + 1, 0x100000), VTE_SEQ_IGNORE);
 
         test_seq_dcs(U""s);
         test_seq_dcs(U"123;TESTING"s);
@@ -842,6 +903,53 @@ test_seq_dcs_known(void)
         test_seq_dcs_known(f, VTE_SEQ_PARAMETER_CHAR_##p, VTE_SEQ_INTERMEDIATE_CHAR_##i, VTE_CMD_##cmd);
 #include "parser-dcs.hh"
 #undef _VTE_SEQ
+}
+
+static void
+test_seq_dcs_misc(void)
+{
+        // Misc DCS checks
+
+        auto test = [](std::u32string str,
+                       int expected_rv = VTE_SEQ_IGNORE) -> void {
+                parser.reset();
+                auto const rv = feed_parser_until(str);
+                g_assert_cmpint(rv, ==, expected_rv);
+        };
+
+        // Check that a non-7-bit character acts as an invalid
+        // final character and ignores until ST
+
+        test(U"\eP\u0100a\e\\"s);
+        test(U"\u0090\u0100a\e\\"s);
+
+        // with params
+        test(U"\eP1\u0100a\e\\"s);
+        test(U"\u00901\u0100a\e\\"s);
+
+        // with intermediate
+        test(U"\eP1 \u0100a\e\\"s);
+        test(U"\u00901 \u0100a\e\\"s);
+
+        // with pintro
+        test(U"\eP?1 \u0100a\e\\"s);
+        test(U"\u0090?1 \u0100a\e\\"s);
+
+        // lone ST
+        test(U"\e\\"s, VTE_SEQ_ESCAPE);
+        test(U"\u009C"s, VTE_SEQ_CONTROL);
+        test(U"\e\e\\"s, VTE_SEQ_ESCAPE);
+        test(U"\e\u009C"s, VTE_SEQ_CONTROL);
+
+        // Check that C1 ST is recognised while in DCS state before the control string
+        test(U"\e\u009C"s, VTE_SEQ_CONTROL);
+        test(U"\u0090\u009C"s, VTE_SEQ_IGNORE);
+        test(U"\eP1\u009C"s, VTE_SEQ_IGNORE);
+        test(U"\u00901\u009C"s, VTE_SEQ_IGNORE);
+        test(U"\eP1 \u009C"s, VTE_SEQ_IGNORE);
+        test(U"\u00901 \u009C"s, VTE_SEQ_IGNORE);
+        test(U"\eP?1 \u009C"s, VTE_SEQ_IGNORE);
+        test(U"\u0090?1 \u009C"s, VTE_SEQ_IGNORE);
 }
 
 static void
@@ -993,6 +1101,61 @@ test_seq_csi_max(void)
         test_seq_csi_max(str, U";12345:"s);
         test_seq_csi_max(str, U":12345;"s);
         test_seq_csi_max(str, U":12345:"s);
+}
+
+static void
+test_seq_csi_misc(void)
+{
+        // Misc CSI checks
+
+        auto test = [](std::u32string str,
+                       std::initializer_list<int> expected_rvs) -> void {
+                parser.reset();
+                auto rvit = expected_rvs.begin();
+                for (auto it : str) {
+                        auto const rv = parser.feed((uint32_t)(char32_t)it);
+                        if (rv < 0)
+                                break;
+
+                        g_assert_cmpint(rv, ==, *rvit);
+                        g_assert_true(rvit != expected_rvs.end());
+                        ++rvit;
+                }
+        };
+
+        // Check that a non-7-bit character acts as an invalid
+        // final character and aborts the sequence
+
+        test(U"\e[\u0100a"s, {0, 0, VTE_SEQ_IGNORE, VTE_SEQ_GRAPHIC});
+        test(U"\u009B\u0100a"s, {0, VTE_SEQ_IGNORE, VTE_SEQ_GRAPHIC});
+
+        // with params
+        test(U"\e[1\u0100a"s, {0, 0, 0, VTE_SEQ_IGNORE, VTE_SEQ_GRAPHIC});
+        test(U"\u009B1\u0100a"s, {0, 0, VTE_SEQ_IGNORE, VTE_SEQ_GRAPHIC});
+
+        // with intermediate
+        test(U"\e[1 \u0100a"s, {0, 0, 0, 0, VTE_SEQ_IGNORE, VTE_SEQ_GRAPHIC});
+        test(U"\u009B1 \u0100a"s, {0, 0, 0, VTE_SEQ_IGNORE, VTE_SEQ_GRAPHIC});
+
+        // with pintro
+        test(U"\e[?1 \u0100a"s, {0, 0, 0, 0, 0, VTE_SEQ_IGNORE, VTE_SEQ_GRAPHIC});
+        test(U"\u009B?1 \u0100a"s, {0, 0, 0, 0, VTE_SEQ_IGNORE, VTE_SEQ_GRAPHIC});
+
+        // Check that C1 ST is dispatched while in CSI state
+        auto test_st = [](std::u32string str) -> void {
+                feed_parser(str);
+                g_assert_cmpuint(seq.terminator(), ==, 0x9c);
+        };
+        test_st(U"\u009C"s);
+        test_st(U"\u009C"s);
+        test_st(U"\e[\u009C"s);
+        test_st(U"\u009B\u009C"s);
+        test_st(U"\e[1\u009C"s);
+        test_st(U"\u009B[1\u009C"s);
+        test_st(U"\e[1 \u009C"s);
+        test_st(U"\u009B[1 \u009C"s);
+        test_st(U"\e[?1 \u009C"s);
+        test_st(U"\u009B[?1 \u009C"s);
 }
 
 static void
@@ -1562,14 +1725,6 @@ test_seq_glue_sequence_builder(void)
 
 }
 
-static void
-test_seq_glue_reply_builder(void)
-{
-        /* Nothing to test here; ReplyBuilder is just a constructor for
-         * SequenceBuilder.
-         */
-}
-
 int
 main(int argc,
      char* argv[])
@@ -1587,7 +1742,6 @@ main(int argc,
         // g_test_add_func("/vte/parser/sequences/glue/string-tokeniser/char8_t", test_seq_glue_string_tokeniser<char8_t>);
         g_test_add_func("/vte/parser/sequences/glue/string-tokeniser/char32_t", test_seq_glue_string_tokeniser<char32_t>);
         g_test_add_func("/vte/parser/sequences/glue/sequence-builder", test_seq_glue_sequence_builder);
-        g_test_add_func("/vte/parser/sequences/glue/reply-builder", test_seq_glue_reply_builder);
         g_test_add_func("/vte/parser/sequences/control", test_seq_control);
         g_test_add_func("/vte/parser/sequences/escape/invalid", test_seq_esc_invalid);
         g_test_add_func("/vte/parser/sequences/escape/charset/94", test_seq_esc_charset_94);
@@ -1604,10 +1758,12 @@ main(int argc,
         g_test_add_func("/vte/parser/sequences/csi/parameters", test_seq_csi_param);
         g_test_add_func("/vte/parser/sequences/csi/clear", test_seq_csi_clear);
         g_test_add_func("/vte/parser/sequences/csi/max", test_seq_csi_max);
+        g_test_add_func("/vte/parser/sequences/csi/misc", test_seq_csi_misc);
         g_test_add_func("/vte/parser/sequences/sci", test_seq_sci);
         g_test_add_func("/vte/parser/sequences/sci/known", test_seq_sci_known);
         g_test_add_func("/vte/parser/sequences/dcs", test_seq_dcs);
         g_test_add_func("/vte/parser/sequences/dcs/known", test_seq_dcs_known);
+        g_test_add_func("/vte/parser/sequences/dcs/misc", test_seq_dcs_misc);
         g_test_add_func("/vte/parser/sequences/osc", test_seq_osc);
 
         return g_test_run();
