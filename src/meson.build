@@ -41,6 +41,11 @@ cairo_glue_sources = files(
   'cairo-glue.hh',
 )
 
+color_lightness_sources = files(
+  'color-lightness.hh',
+  'color-lightness.cc',
+)
+
 color_sources = files(
   'color.hh',
   'color-names.hh',
@@ -229,7 +234,7 @@ vte_glue_sources = files(
   'vte-glue.hh',
 )
 
-libvte_common_sources = base16_sources + cairo_glue_sources + color_sources + config_sources + debug_sources + glib_glue_sources + gtk_glue_sources + libc_glue_sources + modes_sources + pango_glue_sources + parser_sources + pastify_sources + pcre2_glue_sources + properties_sources + pty_sources + refptr_sources + regex_sources + std_glue_sources + utf8_sources + uuid_sources + vte_uuid_sources + vte_glue_sources + files(
+libvte_common_sources = base16_sources + color_lightness_sources + cairo_glue_sources + color_sources + config_sources + debug_sources + glib_glue_sources + gtk_glue_sources + libc_glue_sources + modes_sources + pango_glue_sources + parser_sources + pastify_sources + pcre2_glue_sources + properties_sources + pty_sources + refptr_sources + regex_sources + std_glue_sources + utf8_sources + uuid_sources + vte_uuid_sources + vte_glue_sources + files(
   'attr.hh',
   'bidi.cc',
   'bidi.hh',
@@ -688,6 +693,8 @@ xticker = executable(
 
 # Unit tests
 
+test_units = []
+
 test_base16_sources = config_sources + base16_sources + files(
   'base16-test.cc',
 )
@@ -699,6 +706,8 @@ test_base16 = executable(
   include_directories: top_inc,
   install: false,
 )
+
+test_units += [test_base16,]
 
 test_colors_sources = config_sources + debug_sources + glib_glue_sources + color_sources + files(
   'color-test.cc',
@@ -718,6 +727,35 @@ test_colors = executable(
   install: false,
   sources: test_colors_sources,
 )
+
+test_units += [test_colors,]
+
+test_color_lightness_sources = config_sources + color_lightness_sources + files(
+  'vtetypes.cc',
+  'vtetypes.hh',
+  'color-lightness-tests.cc',
+)
+
+test_color_lightness_deps = [
+  glib_dep,
+  pango_dep,
+]
+
+if get_option('gtk3')
+  test_color_lightness_deps += [gtk3_dep,]
+elif get_option('gtk4')
+  test_color_lightness_deps += [gtk4_dep,]
+endif
+
+test_color_lightness = executable(
+  'test-color-lightness',
+  dependencies: test_color_lightness_deps,
+  include_directories: top_inc,
+  install: false,
+  sources: test_color_lightness_sources,
+)
+
+test_units += [test_color_lightness,]
 
 test_minifont_common_sources = config_sources + files(
   'minifont-test.cc'
@@ -751,6 +789,8 @@ if get_option('gtk3')
     install: false,
     sources: test_minifont_gtk3_sources,
   )
+
+  test_units += [test_minifont_gtk3,]
 endif # gtk3
 
 if get_option('gtk4')
@@ -781,6 +821,8 @@ if get_option('gtk4')
     install: false,
     sources: test_minifont_gtk4_sources,
   )
+
+  test_units += [test_minifont_gtk4,]
 endif # gtk4
 
 test_modes_sources = config_sources + modes_sources + files(
@@ -794,6 +836,8 @@ test_modes = executable(
   include_directories: top_inc,
   install: false,
 )
+
+test_units += [test_modes,]
 
 test_parser_sources = config_sources + debug_sources + parser_sources + files(
   'parser-test.cc',
@@ -814,6 +858,8 @@ test_parser = executable(
   install: false,
 )
 
+test_units += [test_parser,]
+
 test_pastify_sources = config_sources + pastify_sources + files(
   'pastify-test.cc',
 )
@@ -825,6 +871,8 @@ test_pastify = executable(
   include_directories: top_inc,
   install: false,
 )
+
+test_units += [test_pastify,]
 
 test_reaper_sources = config_sources + debug_sources + files(
   'reaper.cc',
@@ -845,6 +893,8 @@ test_reaper = executable(
   install: false,
 )
 
+test_units += [test_reaper,]
+
 test_refptr_sources = config_sources + files(
   'refptr-test.cc',
   'refptr.hh'
@@ -857,6 +907,8 @@ test_refptr = executable(
   include_directories: top_inc,
   install: false,
 )
+
+test_units += [test_refptr,]
 
 if get_option('sixel')
   fuzz_sixel_sources = config_sources + files(
@@ -889,6 +941,8 @@ if get_option('sixel')
     include_directories: top_inc,
     install: false,
   )
+
+  test_units += [test_sixel,]
 endif
 
 test_stream_sources = config_sources + files(
@@ -915,6 +969,8 @@ test_stream = executable(
   install: false,
 )
 
+test_units += [test_stream,]
+
 test_tabstops_sources = config_sources + debug_sources + files(
   'tabstops-test.cc',
   'tabstops.hh'
@@ -932,6 +988,8 @@ test_tabstops = executable(
   include_directories: top_inc,
   install: false,
 )
+
+test_units += [test_tabstops,]
 
 test_properties_sources = cairo_glue_sources + color_sources + config_sources + debug_sources + glib_glue_sources + properties_sources + uuid_sources + files(
   'properties-test.cc',
@@ -953,6 +1011,8 @@ test_properties = executable(
   sources: test_properties_sources,
 )
 
+test_units += [test_properties,]
+
 test_unicode_width_sources = config_sources + unicode_width_sources + files(
   'unicode-width-test.cc',
 )
@@ -965,6 +1025,8 @@ test_unicode_width = executable(
   install: false,
 )
 
+test_units += [test_unicode_width,]
+
 test_utf8_sources = config_sources + utf8_sources + files(
   'utf8-test.cc',
 )
@@ -976,6 +1038,8 @@ test_utf8 = executable(
   include_directories: top_inc,
   install: false,
 )
+
+test_units += [test_utf8,]
 
 test_uuid_sources = config_sources + debug_sources + glib_glue_sources + uuid_sources + files(
   'uuid-test.cc',
@@ -993,6 +1057,8 @@ test_uuid = executable(
   include_directories: top_inc,
   install: false,
 )
+
+test_units += [test_uuid,]
 
 test_vtetypes_sources = config_sources + libc_glue_sources + files(
    'vtetypes.cc',
@@ -1015,52 +1081,20 @@ if get_option('gtk3')
     include_directories: top_inc,
     install: false,
   )
+
+  test_units += [test_vtetypes,]
 endif
+
+# Run unit tests
 
 test_env = [
   'VTE_DEBUG=0'
 ]
 
-# apparently there is no way to get a name back from an executable(), so it this ugly way
-test_units = [
-  ['base16', test_base16],
-  ['colors', test_colors],
-  ['modes', test_modes],
-  ['parser', test_parser],
-  ['pastify', test_pastify],
-  ['properties', test_properties],
-  ['reaper', test_reaper],
-  ['refptr', test_refptr],
-  ['stream', test_stream],
-  ['tabstops', test_tabstops],
-  ['unicode-width', test_unicode_width],
-  ['utf8', test_utf8],
-  ['uuid', test_uuid],
-]
-
-if get_option('gtk3')
-  test_units += [
-    ['minifont-gtk3', test_minifont_gtk3],
-    ['vtetypes', test_vtetypes],
-  ]
-endif
-
-if get_option('gtk4')
-  test_units += [
-    ['minifont-gtk4', test_minifont_gtk4],
-  ]
-endif
-
-if get_option('sixel')
-  test_units += [
-    ['sixel', test_sixel],
-  ]
-endif
-
 foreach test: test_units
   test(
-    test[0],
-    test[1],
+    test.name(),
+    test,
     env: test_env,
     timeout: 600, # See issue vte#120
   )
