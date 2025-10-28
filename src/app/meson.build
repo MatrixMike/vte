@@ -105,12 +105,14 @@ if get_option('gtk3')
     input: 'vte.desktop.in',
     install: true,
     install_dir: vte_prefix / desktopdatadir,
+    install_tag: 'runtime',
     output: app_gtk3_desktop_name,
   )
 
   meson.add_install_script(
     'meson_desktopfile.py',
     desktopdatadir,
+    get_option('app-hidden').to_string(),
     app_gtk3_desktop_name,
   )
 endif
@@ -128,12 +130,14 @@ if get_option('gtk4')
     input: 'vte.desktop.in',
     install: true,
     install_dir: vte_prefix / desktopdatadir,
+    install_tag: 'runtime',
     output: app_gtk4_desktop_name,
   )
 
   meson.add_install_script(
     'meson_desktopfile.py',
     desktopdatadir,
+    get_option('app-hidden').to_string(),
     app_gtk4_desktop_name,
   )
 endif

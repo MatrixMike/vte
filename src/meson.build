@@ -14,7 +14,10 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this library.  If not, see <https://www.gnu.org/licenses/>.
 
-subdir('terminfo')
+if get_option('terminfo')
+  subdir('terminfo')
+endif
+
 subdir('vte')
 
 src_inc = include_directories('.')
@@ -431,6 +434,7 @@ if get_option('gtk3')
     vte_gtk3_api_name,
     sources: libvte_gtk3_sources,
     version: libvte_gtk3_soversion,
+    darwin_versions: libvte_gtk3_darwinversions,
     include_directories: incs,
     dependencies: libvte_gtk3_deps,
     cpp_args: libvte_gtk3_cppflags,
@@ -730,21 +734,24 @@ test_colors = executable(
 
 test_units += [test_colors,]
 
-test_color_lightness_sources = config_sources + color_lightness_sources + files(
-  'vtetypes.cc',
-  'vtetypes.hh',
-  'color-lightness-tests.cc',
-)
+if get_option('gtk3') or get_option('gtk4')
+  test_color_lightness_sources = config_sources + color_lightness_sources + files(
+    'vtetypes.cc',
+    'vtetypes.hh',
+    'color-lightness-tests.cc',
+  )
 
-test_color_lightness_deps = [
-  glib_dep,
-  pango_dep,
-]
+  test_color_lightness_deps = [
+    fmt_dep,
+    glib_dep,
+    pango_dep,
+  ]
 
-if get_option('gtk3')
-  test_color_lightness_deps += [gtk3_dep,]
-elif get_option('gtk4')
-  test_color_lightness_deps += [gtk4_dep,]
+  if get_option('gtk3')
+    test_color_lightness_deps += [gtk3_dep,]
+  elif get_option('gtk4')
+    test_color_lightness_deps += [gtk4_dep,]
+  endif
 endif
 
 test_color_lightness = executable(
@@ -1155,6 +1162,8 @@ if systemd_dep.found()
   )
 endif
 
-# Demo application
+# VTE Application
 
-subdir('app')
+if get_option('app')
+  subdir('app')
+endif

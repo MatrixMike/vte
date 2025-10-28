@@ -17,7 +17,7 @@
 project(
   'vte',
   ['c', 'cpp'],
-  version: '0.81.1',
+  version: '0.83.0',
   license: ['LGPL-3.0-or-later', 'GPL-3.0-or-later'],
   default_options: [
     'buildtype=release',
@@ -31,8 +31,8 @@ project(
 
 c_req_std                 = 'gnu11'
 cxx_req_std               = 'gnu++23'
-gxx_req_version           = '10.0'
-clangxx_req_version       = '11.0'
+gxx_req_version           = '12.1'
+clangxx_req_version       = '14.0'
 py_req_version            = '3.7'
 
 # Version requirements
@@ -90,6 +90,10 @@ lt_current = vte_major_version + lt_age
 
 libvte_gtk3_soversion = '@0@.@1@.@2@'.format(libvte_soversion, lt_current, lt_revision)
 libvte_gtk4_soversion = libvte_soversion.to_string()
+
+# Backward compatibility
+lt_current_darwin = lt_current + 1
+libvte_gtk3_darwinversions = [lt_current_darwin, '@0@.@1@.0'.format(lt_current_darwin, lt_revision)]
 
 # i18n
 
@@ -201,6 +205,7 @@ config_h.set10('WITH_FRIBIDI', get_option('fribidi'))
 config_h.set10('WITH_GNUTLS', get_option('gnutls'))
 config_h.set10('WITH_ICU', get_option('icu'))
 config_h.set10('WITH_SIXEL', get_option('sixel'))
+config_h.set10('WITH_TERMINFO', get_option('terminfo'))
 
 ver = glib_min_req_version.split('.')
 config_h.set('GLIB_VERSION_MIN_REQUIRED', '(G_ENCODE_VERSION(' + ver[0] + ',' + ver[1] + '))')
@@ -781,6 +786,10 @@ meson.add_dist_script(
   find_program('meson_changelog.sh'),
 )
 
+meson.add_dist_script(
+  find_program('meson_subprojects.sh'),
+)
+
 # Simple compat Makefile
 
 makefile_conf = configuration_data()
@@ -824,6 +833,7 @@ output += '  GTK+ 4.0:     ' + get_option('gtk4').to_string() + '\n'
 output += '  ICU:          ' + get_option('icu').to_string() + '\n'
 output += '  GIR:          ' + get_option('gir').to_string() + '\n'
 output += '  systemd:      ' + systemd_dep.found().to_string() + '\n'
+output += '  Terminfo:     ' + get_option('terminfo').to_string() + '\n'
 output += '  SIXEL:        ' + get_option('sixel').to_string() + '\n'
 output += '  Glade:        ' + get_option('glade').to_string() + '\n'
 output += '  Vala:         ' + get_option('vapi').to_string() + '\n'

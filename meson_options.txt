@@ -30,6 +30,20 @@ option(
 )
 
 option(
+  'app',
+  type: 'boolean',
+  value: true,
+  description: 'Enable vte apaplication',
+)
+
+option(
+  'app-hidden',
+  type: 'boolean',
+  value: false,
+  description: 'Mark the vte apaplication as NotShowIn gnome',
+)
+
+option(
   'dbg', # for some reason, 'debug' is "reserved"
   type: 'boolean',
   value: false,
@@ -104,6 +118,13 @@ option(
   type: 'boolean',
   value: true,
   description: 'Enable systemd support',
+)
+
+option(
+  'terminfo',
+  type: 'boolean',
+  value: false,
+  description: 'Enable vte terminfo (experimental)',
 )
 
 option(
