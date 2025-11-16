@@ -38,6 +38,7 @@
 #include "sgr.hh"
 #include "base16.hh"
 #include "xtermcap.hh"
+#include "systemdcontext.hh"
 
 #define BEL_C0 "\007"
 #define ST_C0 _VTE_CAP_ST
@@ -1727,17 +1728,12 @@ Terminal::set_termprop_uri(vte::parser::Sequence const& seq,
                         } else {
                                 // invalid URI, or not a file: URI
                                 set = true;
-                                reset_termprop(*info);
+                                m_termprops.reset(*info);
                         }
                 }
         } else {
-                // Only reset the termprop if it's not already reset
-                if (auto const old_value = m_termprops.value(*info);
-                    !old_value ||
-                    !std::holds_alternative<std::monostate>(*old_value)) {
+                if (m_termprops.reset(*info))
                         set = true;
-                        reset_termprop(*info);
-                }
         }
 
         if (set) {
@@ -2247,6 +2243,101 @@ try
 catch (...)
 {
         // nothing to do here
+}
+
+// systemd_extension:
+//
+// Parse a systemd OSC 3008 sequence.
+void
+Terminal::systemd_extension(vte::parser::Sequence const& seq,
+                            vte::parser::StringTokeniser::const_iterator& token,
+                            vte::parser::StringTokeniser::const_iterator const& endtoken) noexcept
+try
+{
+        // This is a new feature, so reject BEL-terminated OSC.
+        if (seq.is_st_bel())
+                return;
+
+        if (token == endtoken)
+                return;
+
+        // Parse start/end and ID
+        auto const initstr = *token;
+        auto const initeq = initstr.find('='); // possibly npos
+        if (initeq == initstr.npos)
+                return;
+
+        auto const cmd = vte::systemd::parse_context_operation(initstr.substr(0, initeq));
+        if (!cmd)
+                return;
+
+        auto const id = vte::property::parse_systemd_context_id(initstr.substr(initeq + 1));
+        if (!id)
+                return;
+
+        m_pending_changes |= std::to_underlying(PendingChanges::SYSTEMD_CONTEXT);
+
+#if 0
+        // See if there's already a context with this ID pending
+        if (auto it = std::find_if(std::rbegin(m_systemd_contexts_pending),
+                                   std::rend(m_systemd_contexts_pending),
+                                   [&](auto&& ctx) constexpr noexcept -> bool {
+                                           return ctx->id() == *id;
+                                   });
+            it != std::rend(m_systemd_contexts_pending)) {
+                // Could coalesce ending an open context and removing
+                // all open contexts above it, but the embedder may
+                // want to observe the contexts above.
+                // FIXME: think about this API some more
+        }
+
+        // Too many contexts pending, cannot add more
+        if (m_systemd_contexts_pending.size() >= 16)
+                return;
+#endif
+
+        auto ctx = std::make_unique<vte::systemd::Context>(*cmd, *id);
+        if (!ctx)
+                return;
+
+        auto const prop_flag = (*cmd == VTE_SYSTEMD_CONTEXT_OPERATION_START)
+                ? vte::property::Flags::SYSTEMD_START
+                : vte::property::Flags::SYSTEMD_END;
+
+        // Parse properties
+        while (++token != endtoken) {
+                auto const str = *token;
+                auto const eq = str.find("="); // possibly str.npos
+
+                auto const info = ctx->properties().registry().lookup(str.substr(0, eq));
+                if (!info)
+                        continue; // ignore unknown properties
+
+                // Only set the properties allowed for the operation
+                if ((info->flags() & vte::property::Flags::SYSTEMD) != prop_flag)
+                        continue;
+
+                // No-OSC properties cannot be set here
+                if ((info->flags() & vte::property::Flags::NO_OSC) == vte::property::Flags::NO_OSC)
+                        continue;
+
+                if (eq == str.npos) {
+                        // Reset
+                        *ctx->properties().value(*info) = {};
+                } else {
+                        // Assignment
+                        if (auto value = info->parse(str.substr(eq + 1))) {
+                                *ctx->properties().value(*info) = std::move(*value);
+                        } else {
+                                // Reset
+                                *ctx->properties().value(*info) = {};
+                        }
+                }
+        }
+}
+catch (...)
+{
+        // nothing to do here?
 }
 
 // collect_rect:
@@ -6169,6 +6260,27 @@ Terminal::DECTID(vte::parser::Sequence const& seq)
 }
 
 void
+Terminal::DECTLTC(vte::parser::Sequence const& seq)
+{
+        /*
+         * DECTLTC - select transmit line termination characters
+         * Selects a string of up to six end-of-line characters
+         * to be sent to the host in local editing mode.
+         * This can be used to send a control function at the
+         * end of a line transmission.
+         *
+         * Arguments:
+         *   args[0..5]: decimal value of a character
+         *     Can be C0, GL, DEL, C1, GR; values outside 0…254
+         *     are ignored
+         *
+         * References: VT340 Text Programming Manual p. 145f
+         *
+         * Not worth implementing.
+         */
+}
+
+void
 Terminal::DECTME(vte::parser::Sequence const& seq)
 {
         /*
@@ -6196,6 +6308,50 @@ Terminal::DECTST(vte::parser::Sequence const& seq)
          *   args[1]: which test to perform
          *
          * References: VT525
+         *
+         * Not worth implementing.
+         */
+}
+
+void
+Terminal::DECTTC(vte::parser::Sequence const& seq)
+{
+        /*
+         * DECTTC - select transmit termination character
+         * Selects end-of-block character to be sent to the
+         * host in local editing mode.
+         *
+         * Arguments:
+         *   args[0]: the end-of-block character
+         *     0: none (disabled)
+         *     1: FF (0/12)
+         *     2: ETX (0/03)
+         *     3: EOT (0/04)
+         *     4: CR (0/13)
+         *     5: DC3 (1/03)
+         *
+         * References: VT340 Text Programming Manual p. 144
+         *
+         * Not worth implementing.
+         */
+}
+
+void
+Terminal::DECTTCX(vte::parser::Sequence const& seq)
+{
+        /*
+         * DECTTCX - select transmit termination character extended
+         * Selects a string of up to six end-of-block characters
+         * to be sent to the host in local editing mode.
+         * This can be used to send a control function at the
+         * end of a block transmission.
+         *
+         * Arguments:
+         *   args[0..5]: decimal value of a character
+         *     Can be C0, GL, DEL, C1, GR; values outside 0…254
+         *     are ignored
+         *
+         * References: VT340 Text Programming Manual p. 145f
          *
          * Not worth implementing.
          */
@@ -7785,7 +7941,7 @@ try
                         }
                 } else {
                         set = true;
-                        reset_termprop(*info);
+                        m_termprops.reset(*info);
                 }
 
                 if (set) {
@@ -7861,6 +8017,10 @@ try
 
         case VTE_OSC_CONEMU_EXTENSION:
                 conemu_extension(seq, it, cend);
+                break;
+
+        case VTE_OSC_VTE_SYSTEMD:
+                systemd_extension(seq, it, cend);
                 break;
 
         case VTE_OSC_XTERM_SET_ICON_TITLE:

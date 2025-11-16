@@ -4496,7 +4496,7 @@ Terminal::process_incoming_decsixel(ProcessingContext& context,
                                         m_termprops.dirty(*info) = true;
                                         *m_termprops.value(*info) = std::move(m_sixel_context->image_cairo());
                                 } else {
-                                        reset_termprop(*info);
+                                        m_termprops.reset(*info);
                                 }
 
                                 m_pending_changes |= std::to_underlying(PendingChanges::TERMPROPS);
@@ -4514,7 +4514,7 @@ Terminal::process_incoming_decsixel(ProcessingContext& context,
                 if (m_sixel_context->id() == vte::sixel::Context::k_termprop_icon_image_id) {
                         auto const info = m_termprops.registry().lookup(VTE_PROPERTY_ID_ICON_IMAGE);
                         assert(info);
-                        reset_termprop(*info);
+                        m_termprops.reset(*info);
                         m_pending_changes |= std::to_underlying(PendingChanges::TERMPROPS);
                 }
                 } catch (...) {
@@ -11105,6 +11105,10 @@ Terminal::emit_pending_signals()
                                 }
                         }
                 }
+        }
+
+	if (m_pending_changes & std::to_underlying(PendingChanges::SYSTEMD_CONTEXT)) {
+                // FIXME: notify about systemd context changes
         }
 
         if (!m_no_legacy_signals) {

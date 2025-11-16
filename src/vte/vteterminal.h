@@ -134,13 +134,17 @@ struct _VteTerminalClass {
         void (* termprop_changed)(VteTerminal* terminal,
                                   char const* prop);
 
+        void (* systemd_context)(VteTerminal* terminal,
+                                 VteSystemdContextOperation op,
+                                 VteProperties const* properties);
+
         /* Add new vfuncs just above, and subtract from the padding below. */
 
         /* Padding for future expansion. */
 #if _VTE_GTK == 3
-        gpointer _padding[10];
+        gpointer _padding[9];
 #elif _VTE_GTK == 4
-        gpointer _padding[13];
+        gpointer _padding[12];
 #endif /* _VTE_GTK */
 
 // FIXMEgtk4 use class private data instead
@@ -856,6 +860,14 @@ gboolean vte_terminal_get_termprop_flags_by_id(VteTerminal* terminal,
                                                GType gtype,
                                                gboolean ignore_unknown_flags,
                                                uint64_t* valuep) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
+
+_VTE_PUBLIC
+void vte_terminal_reset_termprop(VteTerminal* terminal,
+                                 char const* prop) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1, 2);
+
+_VTE_PUBLIC
+void vte_terminal_reset_termprop_by_id(VteTerminal* terminal,
+                                       int prop) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);
 
 _VTE_PUBLIC
 VteProperties const* vte_terminal_get_termprops(VteTerminal* terminal) _VTE_CXX_NOEXCEPT _VTE_GNUC_NONNULL(1);

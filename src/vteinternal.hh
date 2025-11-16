@@ -776,11 +776,12 @@ public:
 
         enum class PendingChanges {
                 TERMPROPS = 1u << 0,
+                SYSTEMD_CONTEXT = 1u << 1,
 
                 // deprecated but still emitted for now
-                TITLE = 1u << 1,
-                CWD   = 1u << 2,
-                CWF   = 1u << 3,
+                TITLE = 1u << 2,
+                CWD   = 1u << 3,
+                CWF   = 1u << 4,
         };
         unsigned m_pending_changes{0};
 
@@ -861,25 +862,16 @@ public:
                 return m_termprops;
         }
 
-        void reset_termprop(vte::property::Registry::Property const& info)
+        void queue_termprops_changed() noexcept
         {
-                auto const is_valueless = info.type() == vte::property::Type::VALUELESS;
-                auto value = m_termprops.value(info);
-                if (value &&
-                    !std::holds_alternative<std::monostate>(*value)) {
-                        *value = {};
-                        m_termprops.dirty(info.id()) = !is_valueless;
-                } else if (is_valueless) {
-                        m_termprops.dirty(info.id()) = false;
-                }
+                m_pending_changes |= std::to_underlying(PendingChanges::TERMPROPS);
+
+                // FIXME: need to start processing
         }
 
         void reset_termprops()
         {
-                for (auto const& info: m_termprops.registry().get_all()) {
-                        reset_termprop(info);
-                }
-
+                m_termprops.reset_all();
                 m_pending_changes |= std::to_underlying(PendingChanges::TERMPROPS);
         }
 
@@ -1833,6 +1825,9 @@ public:
         void conemu_extension(vte::parser::Sequence const& seq,
                               vte::parser::StringTokeniser::const_iterator& token,
                               vte::parser::StringTokeniser::const_iterator const& endtoken) noexcept;
+        void systemd_extension(vte::parser::Sequence const& seq,
+                               vte::parser::StringTokeniser::const_iterator& token,
+                               vte::parser::StringTokeniser::const_iterator const& endtoken) noexcept;
 
         // helpers
 
