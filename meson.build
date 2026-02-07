@@ -17,7 +17,7 @@
 project(
   'vte',
   ['c', 'cpp'],
-  version: '0.83.0',
+  version: '0.85.0',
   license: ['LGPL-3.0-or-later', 'GPL-3.0-or-later'],
   default_options: [
     'buildtype=release',
@@ -60,6 +60,14 @@ pango_req_version         = '1.22.0'
 pcre2_req_version         = '10.21'
 simdutf_req_version       = '6.2.0'
 systemd_req_version       = '220'
+
+# Fallback options
+
+simdutf_default_options = [
+  'ascii=true',
+  'utf8=true',
+  'utf32=true',
+]
 
 # API
 
@@ -662,7 +670,7 @@ pango_dep         = dependency('pango',      version: '>=' + pango_req_version)
 pcre2_dep         = dependency('libpcre2-8', version: '>=' + pcre2_req_version)
 pthreads_dep      = dependency('threads')
 liblz4_dep        = dependency('liblz4', version: '>=' + liblz4_req_version)
-simdutf_dep       = dependency('simdutf', version: '>=' + simdutf_req_version, required: true)
+simdutf_dep       = dependency('simdutf', version: '>=' + simdutf_req_version, required: true, default_options: simdutf_default_options)
 
 # fmt dep needs a bit more massaging since we don't know
 # if the system fmt is a shared or static library, and in
